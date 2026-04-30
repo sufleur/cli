@@ -1,0 +1,32 @@
+version: 2
+
+builds:
+  - main: ./cmd/sufleur
+    binary: sufleur
+    ldflags:
+      - -X github.com/WTomas/sufleur-cli/internal/cli.Version={{.Version}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "sufleur_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
