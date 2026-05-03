@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +18,7 @@ var addCmd = &cobra.Command{
 	Args:  cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
+		aliasName, _ := cmd.Flags().GetString("alias")
 		verbose, _ := cmd.Flags().GetBool("verbose")
 
 		ref, err := promptref.Parse(args[0])
@@ -29,6 +31,17 @@ var addCmd = &cobra.Command{
 			constraint = args[1]
 		}
 
+		// Compute the alias key. With --alias, the new entry lives under
+		// @<workspace>/<aliasName> in the same workspace as the underlying
+		// package; without --alias, the key equals the package ref.
+		aliasKey := ref.Raw
+		if aliasName != "" {
+			if err := validateAliasName(aliasName); err != nil {
+				return err
+			}
+			aliasKey = "@" + ref.Workspace + "/" + aliasName
+		}
+
 		cfg, err := config.Load("sufleur.yaml")
 		if err != nil {
 			return err
@@ -39,28 +52,29 @@ var addCmd = &cobra.Command{
 			return fmt.Errorf("no API key configured for workspace %q — add it to api_keys in sufleur.yaml", ref.Workspace)
 		}
 
-		if existing, exists := cfg.Raw.Prompts[ref.Raw]; exists && !force {
-			return fmt.Errorf("prompt %s already in sufleur.yaml (constraint: %s) — use --force to update", ref.Raw, existing)
+		if existing, exists := cfg.Raw.Prompts[aliasKey]; exists && !force {
+			return fmt.Errorf("prompt %s already in sufleur.yaml (value: %s) — use --force to update", aliasKey, existing)
 		}
 
-		// Validate the prompt exists in the API
 		client := fetcher.NewClient(cfg.ResolvedEndpoint, apiKey, ref.Workspace, verbose)
 		if err := client.ValidatePrompts(cmd.Context(), []string{ref.Name}); err != nil {
 			return fmt.Errorf("validating prompt: %w", err)
 		}
 
-		// Add/update the prompt in config
 		if cfg.Raw.Prompts == nil {
 			cfg.Raw.Prompts = make(map[string]string)
 		}
-		cfg.Raw.Prompts[ref.Raw] = constraint
+		cfg.Raw.Prompts[aliasKey] = config.FormatPromptValue(aliasKey, ref.Raw, constraint)
 		if err := config.Save("sufleur.yaml", cfg.Raw); err != nil {
 			return err
 		}
 
-		fmt.Printf("Added %s (%s) to sufleur.yaml\n", ref.Raw, constraint)
+		if aliasKey == ref.Raw {
+			fmt.Printf("Added %s (%s) to sufleur.yaml\n", aliasKey, constraint)
+		} else {
+			fmt.Printf("Added %s (alias for %s @ %s) to sufleur.yaml\n", aliasKey, ref.Raw, constraint)
+		}
 
-		// Run install to fetch and cache
 		r := resolver.New(resolver.Options{
 			ConfigPath:   "sufleur.yaml",
 			LockfilePath: "sufleur-lock.yaml",
@@ -78,7 +92,7 @@ var addCmd = &cobra.Command{
 			if e.Fetched {
 				status = "fetched"
 			}
-			fmt.Printf("  %s@%s (%s)\n", e.Name, e.Version, status)
+			fmt.Printf("  %s@%s (%s)\n", e.Alias, e.Version, status)
 		}
 
 		for _, w := range result.DraftWarnings {
@@ -90,6 +104,19 @@ var addCmd = &cobra.Command{
 	},
 }
 
+// validateAliasName enforces that a `--alias` value is a bare prompt name
+// suitable for the right-hand side of @workspace/<name> (no slashes, no @).
+func validateAliasName(name string) error {
+	if name == "" {
+		return fmt.Errorf("--alias must not be empty")
+	}
+	if strings.ContainsAny(name, "@/ ") {
+		return fmt.Errorf("--alias %q must not contain '@', '/', or whitespace", name)
+	}
+	return nil
+}
+
 func init() {
-	addCmd.Flags().Bool("force", false, "Update constraint if prompt already exists")
+	addCmd.Flags().Bool("force", false, "Update value if prompt already exists")
+	addCmd.Flags().String("alias", "", "Install the prompt under a different name in the same workspace (lets you keep multiple versions side-by-side)")
 }

@@ -10,7 +10,10 @@ import (
 	"github.com/WTomas/sufleur-cli/internal/generator"
 )
 
-// Cache stores prompt data as JSON files on disk.
+// Cache stores prompt data as JSON files on disk. Filenames embed the resolved
+// version so multiple versions of the same underlying package coexist:
+//
+//	.sufleur/@workspace__name@1.2.3.json
 type Cache struct {
 	dir string
 }
@@ -23,36 +26,49 @@ func New(dir string) (*Cache, error) {
 	return &Cache{dir: dir}, nil
 }
 
-// cacheFilename returns the filename to use for a prompt's cache file.
-// Uses Ref (sanitized: / → __) when non-empty, otherwise falls back to Name.
-func cacheFilename(pd *generator.PromptData) string {
-	if pd.Ref != "" {
-		return strings.ReplaceAll(pd.Ref, "/", "__")
+// Dir returns the cache directory path.
+func (c *Cache) Dir() string { return c.dir }
+
+// Key derives the on-disk key (no extension) for a (ref, version) pair.
+// Ref takes precedence; falls back to Name when Ref is empty.
+func Key(ref, name, version string) string {
+	base := ref
+	if base == "" {
+		base = name
 	}
-	return pd.Name
+	base = strings.ReplaceAll(base, "/", "__")
+	return base + "@" + version
 }
 
-// Store writes prompt data to <dir>/<key>.json.
+// keyFromData derives the cache key from a populated PromptData.
+func keyFromData(pd *generator.PromptData) string {
+	return Key(pd.Ref, pd.Name, pd.Version)
+}
+
+// Store writes prompt data to <dir>/<key>.json. The key embeds the version.
 func (c *Cache) Store(pd *generator.PromptData) error {
+	if pd.Version == "" {
+		return fmt.Errorf("cache: cannot store prompt %q with empty version", pd.Name)
+	}
 	data, err := json.MarshalIndent(pd, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling prompt data: %w", err)
 	}
-	path := filepath.Join(c.dir, cacheFilename(pd)+".json")
+	path := filepath.Join(c.dir, keyFromData(pd)+".json")
 	return os.WriteFile(path, data, 0644)
 }
 
 // Load reads prompt data for the given key from the cache.
-func (c *Cache) Load(name string) (*generator.PromptData, error) {
-	path := filepath.Join(c.dir, name+".json")
+func (c *Cache) Load(key string) (*generator.PromptData, error) {
+	path := filepath.Join(c.dir, key+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading cached prompt %q: %w", name, err)
+		return nil, fmt.Errorf("reading cached prompt %q: %w", key, err)
 	}
 
 	var pd generator.PromptData
 	if err := json.Unmarshal(data, &pd); err != nil {
-		return nil, fmt.Errorf("parsing cached prompt %q: %w", name, err)
+		return nil, fmt.Errorf("parsing cached prompt %q: %w", key, err)
 	}
 	return &pd, nil
 }
@@ -69,8 +85,8 @@ func (c *Cache) LoadAll() ([]generator.PromptData, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		name := strings.TrimSuffix(entry.Name(), ".json")
-		pd, err := c.Load(name)
+		key := strings.TrimSuffix(entry.Name(), ".json")
+		pd, err := c.Load(key)
 		if err != nil {
 			return nil, err
 		}
@@ -79,11 +95,34 @@ func (c *Cache) LoadAll() ([]generator.PromptData, error) {
 	return prompts, nil
 }
 
-// Remove deletes the cached data for the given prompt name.
-func (c *Cache) Remove(name string) error {
-	path := filepath.Join(c.dir, name+".json")
+// Remove deletes the cached data for the given key.
+func (c *Cache) Remove(key string) error {
+	path := filepath.Join(c.dir, key+".json")
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("removing cached prompt %q: %w", name, err)
+		return fmt.Errorf("removing cached prompt %q: %w", key, err)
+	}
+	return nil
+}
+
+// PruneTo deletes any *.json file in the cache directory whose key is not in
+// the keep set. Used after Install to clean up cache files for prompts (or
+// versions) that have been removed from the lockfile.
+func (c *Cache) PruneTo(keep map[string]bool) error {
+	entries, err := os.ReadDir(c.dir)
+	if err != nil {
+		return fmt.Errorf("reading cache dir: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		key := strings.TrimSuffix(entry.Name(), ".json")
+		if keep[key] {
+			continue
+		}
+		if err := os.Remove(filepath.Join(c.dir, entry.Name())); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("pruning cache entry %q: %w", key, err)
+		}
 	}
 	return nil
 }

@@ -33,7 +33,7 @@ var installCmd = &cobra.Command{
 			if e.Fetched {
 				status = "fetched"
 			}
-			fmt.Printf("  %s@%s (%s)\n", e.Name, e.Version, status)
+			fmt.Printf("  %s@%s (%s)\n", e.Alias, e.Version, status)
 		}
 
 		for _, w := range result.DraftWarnings {

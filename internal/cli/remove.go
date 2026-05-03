@@ -19,7 +19,7 @@ var removeCmd = &cobra.Command{
 	Short:   "Remove a prompt from sufleur.yaml",
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ref, err := promptref.Parse(args[0])
+		alias, err := promptref.Parse(args[0])
 		if err != nil {
 			return err
 		}
@@ -29,35 +29,61 @@ var removeCmd = &cobra.Command{
 			return err
 		}
 
-		if _, exists := cfg.Raw.Prompts[ref.Raw]; !exists {
-			return fmt.Errorf("prompt %s not found in sufleur.yaml", ref.Raw)
+		if _, exists := cfg.Raw.Prompts[alias.Raw]; !exists {
+			return fmt.Errorf("prompt %s not found in sufleur.yaml", alias.Raw)
 		}
 
-		// Remove from config
-		delete(cfg.Raw.Prompts, ref.Raw)
+		// Remove from config.
+		delete(cfg.Raw.Prompts, alias.Raw)
 		if err := config.Save("sufleur.yaml", cfg.Raw); err != nil {
 			return err
 		}
 
-		// Remove from lockfile if it exists
+		// Update lockfile and cache. The cache file is keyed by the
+		// underlying package + version; only delete it if no other
+		// alias still resolves to the same backing version.
 		lf, err := lockfile.Load("sufleur-lock.yaml")
-		if err == nil {
-			delete(lf.Resolved, ref.Raw)
-			if err := lockfile.Save("sufleur-lock.yaml", lf); err != nil {
-				return err
+		switch {
+		case err == nil:
+			removed, ok := lf.Resolved[alias.Raw]
+			if ok {
+				delete(lf.Resolved, alias.Raw)
+				if err := lockfile.Save("sufleur-lock.yaml", lf); err != nil {
+					return err
+				}
+				removedPackage := removed.Package
+				if removedPackage == "" {
+					removedPackage = alias.Raw
+				}
+				stillReferenced := false
+				for _, rp := range lf.Resolved {
+					pkg := rp.Package
+					if pkg == "" {
+						// Resolve the alias key to find its package — this
+						// happens when a non-aliased entry shares the
+						// underlying package by being itself.
+					}
+					if pkg == removedPackage && rp.Version == removed.Version {
+						stillReferenced = true
+						break
+					}
+				}
+				if !stillReferenced {
+					if c, err := cache.New(".sufleur"); err == nil {
+						pkgRef, perr := promptref.Parse(removedPackage)
+						if perr == nil {
+							_ = c.Remove(cache.Key(pkgRef.Raw, pkgRef.Name, removed.Version))
+						}
+					}
+				}
 			}
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			// Ignore missing lockfile, but surface other errors
+		case errors.Is(err, fs.ErrNotExist):
+			// nothing to clean up
+		default:
 			return fmt.Errorf("loading lockfile: %w", err)
 		}
 
-		// Remove from cache (ignore not-found)
-		c, err := cache.New(".sufleur")
-		if err == nil {
-			_ = c.Remove(promptref.CacheKey(ref))
-		}
-
-		fmt.Printf("Removed %s from sufleur.yaml\n", ref.Raw)
+		fmt.Printf("Removed %s from sufleur.yaml\n", alias.Raw)
 		return nil
 	},
 }

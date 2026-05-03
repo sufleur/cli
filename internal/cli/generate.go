@@ -10,6 +10,7 @@ import (
 	"github.com/WTomas/sufleur-cli/internal/config"
 	"github.com/WTomas/sufleur-cli/internal/generator"
 	"github.com/WTomas/sufleur-cli/internal/lockfile"
+	"github.com/WTomas/sufleur-cli/internal/promptref"
 
 	_ "github.com/WTomas/sufleur-cli/internal/generator/python"
 	_ "github.com/WTomas/sufleur-cli/internal/generator/typescript"
@@ -40,51 +41,62 @@ var generateCmd = &cobra.Command{
 	Use:   "generate",
 	Short: "Regenerate code from the current lockfile",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// 1. Load config
 		cfg, err := config.Load("sufleur.yaml")
 		if err != nil {
 			return fmt.Errorf("loading config: %w", err)
 		}
 
-		// 2. Load lockfile
 		lf, err := lockfile.Load("sufleur-lock.yaml")
 		if err != nil {
 			return fmt.Errorf("loading lockfile: %w\nRun 'sufleur install' first.", err)
 		}
 
-		// 3. Load all cached prompts
 		dc, err := cache.New(".sufleur")
 		if err != nil {
 			return fmt.Errorf("initializing cache: %w", err)
 		}
 
-		prompts, err := dc.LoadAll()
+		entries, err := cfg.Raw.PromptEntries()
 		if err != nil {
-			return fmt.Errorf("loading cached prompts: %w", err)
+			return err
 		}
 
-		// 4. Enrich prompts with status from lockfile
-		for i := range prompts {
-			key := prompts[i].Ref
-			if key == "" {
-				key = prompts[i].Name
+		// For each (alias, package, constraint) entry, load the cache file
+		// keyed by the underlying package + resolved version, then rewrite
+		// Ref/Name on the in-memory PromptData so the generator emits
+		// alias-named identifiers.
+		prompts := make([]generator.PromptData, 0, len(entries))
+		for _, e := range entries {
+			rp, ok := lf.Resolved[e.Alias]
+			if !ok {
+				return fmt.Errorf("lockfile missing entry for %q — run 'sufleur install'", e.Alias)
 			}
-			if entry, ok := lf.Resolved[key]; ok {
-				prompts[i].Status = entry.Status
+			pkgRef, err := promptref.Parse(e.Package)
+			if err != nil {
+				return fmt.Errorf("parsing package %q for alias %q: %w", e.Package, e.Alias, err)
 			}
+			pd, err := dc.Load(cache.Key(pkgRef.Raw, pkgRef.Name, rp.Version))
+			if err != nil {
+				return fmt.Errorf("cache miss for %q: %w (run 'sufleur install')", e.Alias, err)
+			}
+			aliasRef, err := promptref.Parse(e.Alias)
+			if err != nil {
+				return fmt.Errorf("parsing alias %q: %w", e.Alias, err)
+			}
+			pd.Ref = aliasRef.Raw
+			pd.Name = aliasRef.Name
+			pd.Status = rp.Status
+			prompts = append(prompts, *pd)
 		}
 
-		// 5. Look up generator by language
 		lang := cfg.Raw.Output.Language
 		gen, err := generator.Get(lang)
 		if err != nil {
 			return err
 		}
 
-		// 6. Surface backend-reported schema warnings
 		printSchemaWarnings(prompts)
 
-		// 7. Generate
 		outFile := cfg.Raw.Output.File
 		if err := gen.Generate(outFile, prompts); err != nil {
 			return fmt.Errorf("generating code: %w", err)

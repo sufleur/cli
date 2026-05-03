@@ -40,7 +40,3 @@ func Parse(key string) (PromptRef, error) {
 	}, nil
 }
 
-// CacheKey returns a filesystem-safe key for caching (replaces / with __).
-func CacheKey(ref PromptRef) string {
-	return strings.ReplaceAll(ref.Raw, "/", "__")
-}
