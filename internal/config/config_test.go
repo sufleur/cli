@@ -237,3 +237,116 @@ func searchString(s, substr string) bool {
 	}
 	return false
 }
+
+func TestParsePromptEntry_PlainConstraint(t *testing.T) {
+	got, err := ParsePromptEntry("@wtomas/foo", "^1.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := PromptEntry{Alias: "@wtomas/foo", Package: "@wtomas/foo", Constraint: "^1.0.0"}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	if got.IsAlias() {
+		t.Error("plain constraint should not be flagged as alias")
+	}
+}
+
+func TestParsePromptEntry_DraftSentinel(t *testing.T) {
+	got, err := ParsePromptEntry("@wtomas/foo", "draft")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Constraint != "draft" {
+		t.Errorf("Constraint = %q, want \"draft\"", got.Constraint)
+	}
+}
+
+func TestParsePromptEntry_AliasSpec(t *testing.T) {
+	got, err := ParsePromptEntry("@wtomas/old-foo", "@wtomas/foo@^0.1.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := PromptEntry{Alias: "@wtomas/old-foo", Package: "@wtomas/foo", Constraint: "^0.1.0"}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	if !got.IsAlias() {
+		t.Error("alias spec should be flagged as alias")
+	}
+}
+
+func TestParsePromptEntry_AliasDraft(t *testing.T) {
+	got, err := ParsePromptEntry("@wtomas/draft-foo", "@wtomas/foo@draft")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Package != "@wtomas/foo" || got.Constraint != "draft" {
+		t.Errorf("got %+v, want package=@wtomas/foo constraint=draft", got)
+	}
+}
+
+func TestParsePromptEntry_AliasCrossWorkspace(t *testing.T) {
+	got, err := ParsePromptEntry("@me/legacy", "@wtomas/foo@^0.1.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Alias != "@me/legacy" || got.Package != "@wtomas/foo" {
+		t.Errorf("alias should not have to share workspace with package; got %+v", got)
+	}
+}
+
+func TestParsePromptEntry_RejectMalformed(t *testing.T) {
+	cases := []struct{ key, value string }{
+		{"@wtomas/foo", ""},                  // empty value
+		{"@wtomas/foo", "@bare"},             // no separator
+		{"@wtomas/foo", "@wtomas/foo@"},      // empty constraint
+		{"@wtomas/foo", "@/foo@^1.0.0"},      // empty workspace
+		{"@wtomas/foo", "@nopkg@^1.0.0"},     // missing slash in package
+	}
+	for _, tc := range cases {
+		t.Run(tc.value, func(t *testing.T) {
+			if _, err := ParsePromptEntry(tc.key, tc.value); err == nil {
+				t.Errorf("expected error for value %q", tc.value)
+			}
+		})
+	}
+}
+
+func TestPromptEntries_StableOrder(t *testing.T) {
+	cfg := SufleurConfig{
+		Prompts: map[string]string{
+			"@b/two":  "^0.2.0",
+			"@a/one":  "^0.1.0",
+			"@a/zero": "@a/one@^0.0.5",
+		},
+	}
+	entries, err := cfg.PromptEntries()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("len = %d, want 3", len(entries))
+	}
+	wantAliases := []string{"@a/one", "@a/zero", "@b/two"}
+	for i, want := range wantAliases {
+		if entries[i].Alias != want {
+			t.Errorf("entries[%d].Alias = %q, want %q", i, entries[i].Alias, want)
+		}
+	}
+	if !entries[1].IsAlias() {
+		t.Error("@a/zero entry should be flagged as alias")
+	}
+	if entries[1].Package != "@a/one" || entries[1].Constraint != "^0.0.5" {
+		t.Errorf("alias spec parse wrong: %+v", entries[1])
+	}
+}
+
+func TestFormatPromptValue(t *testing.T) {
+	if got := FormatPromptValue("@x/y", "@x/y", "^1.0.0"); got != "^1.0.0" {
+		t.Errorf("non-alias: got %q", got)
+	}
+	if got := FormatPromptValue("@x/old", "@x/y", "^0.1.0"); got != "@x/y@^0.1.0" {
+		t.Errorf("alias: got %q", got)
+	}
+}

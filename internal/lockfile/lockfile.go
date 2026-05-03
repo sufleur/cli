@@ -14,7 +14,12 @@ type Lockfile struct {
 }
 
 // ResolvedPrompt captures a pinned prompt version.
+//
+// Package is the underlying registry reference when this entry is an alias
+// for another prompt; for non-aliased entries it is left empty so the
+// on-disk YAML stays as compact as it has historically been.
 type ResolvedPrompt struct {
+	Package      string    `yaml:"package,omitempty"`
 	Version      string    `yaml:"version"`
 	IntegritySHA string    `yaml:"integrity_sha"`
 	Constraint   string    `yaml:"constraint"`

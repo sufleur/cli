@@ -21,16 +21,17 @@ type Options struct {
 	Frozen       bool
 	Verbose      bool
 	ForceAll     bool     // update all prompts (sufleur update with no args)
-	UpdateOnly   []string // update specific prompts (sufleur update <name>)
+	UpdateOnly   []string // update specific prompts by alias key (sufleur update <alias>)
 }
 
 // ResolvedEntry describes a single resolved prompt in the result.
 type ResolvedEntry struct {
-	Name       string
+	Alias      string // sufleur.yaml key
+	Package    string // underlying ref (== Alias for non-aliased entries)
 	Version    string
 	Constraint string
 	Status     string
-	Fetched    bool // true if fetched from API, false if reused from cache
+	Fetched    bool
 }
 
 // Result is returned from Install with the resolved state.
@@ -60,19 +61,16 @@ func NewWithClient(opts Options, factory ClientFactory) *Resolver {
 
 // Install resolves all prompts according to config and writes the lockfile.
 func (r *Resolver) Install(ctx context.Context) (*Result, error) {
-	// 1. Load config
 	cfg, err := config.Load(r.opts.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
 	}
 
-	// 2. Load existing lockfile (or empty)
 	existing := lockfile.NewLockfile()
 	if lf, err := lockfile.Load(r.opts.LockfilePath); err == nil {
 		existing = lf
 	}
 
-	// 3. Build client factory if not injected
 	factory := r.factory
 	if factory == nil {
 		factory = func(workspace string) fetcher.Client {
@@ -86,37 +84,47 @@ func (r *Resolver) Install(ctx context.Context) (*Result, error) {
 		return nil, fmt.Errorf("initializing cache: %w", err)
 	}
 
-	// 4. Parse all prompt refs and group by workspace
-	type refWithConstraint struct {
-		ref        promptref.PromptRef
-		constraint string
+	entries, err := cfg.Raw.PromptEntries()
+	if err != nil {
+		return nil, err
 	}
-	byWorkspace := make(map[string][]refWithConstraint)
 
-	for key, constraint := range cfg.Raw.Prompts {
-		ref, err := promptref.Parse(key)
+	// Group by underlying package's workspace for batched validation.
+	type entryWithRef struct {
+		entry config.PromptEntry
+		pkg   promptref.PromptRef
+	}
+	byWorkspace := make(map[string][]entryWithRef)
+	for _, e := range entries {
+		pkgRef, err := promptref.Parse(e.Package)
 		if err != nil {
-			return nil, fmt.Errorf("invalid prompt key: %w", err)
+			return nil, fmt.Errorf("invalid package ref for prompt %q: %w", e.Alias, err)
 		}
-		if _, ok := cfg.ResolvedKeys[ref.Workspace]; !ok {
-			return nil, fmt.Errorf("no API key configured for workspace %q (needed by %s)", ref.Workspace, key)
+		if _, ok := cfg.ResolvedKeys[pkgRef.Workspace]; !ok {
+			return nil, fmt.Errorf("no API key configured for workspace %q (needed by %s)", pkgRef.Workspace, e.Alias)
 		}
-		byWorkspace[ref.Workspace] = append(byWorkspace[ref.Workspace], refWithConstraint{ref: ref, constraint: constraint})
+		byWorkspace[pkgRef.Workspace] = append(byWorkspace[pkgRef.Workspace], entryWithRef{entry: e, pkg: pkgRef})
 	}
 
-	// 5. Validate prompt names per workspace
-	for workspace, refs := range byWorkspace {
+	for workspace, ws := range byWorkspace {
 		client := factory(workspace)
-		names := make([]string, len(refs))
-		for i, rc := range refs {
-			names[i] = rc.ref.Name
+		// Dedupe package names — registry validation is name-based, not
+		// (alias, name) based. Two aliases pointing to the same package
+		// only need one validation call.
+		seen := map[string]bool{}
+		var names []string
+		for _, e := range ws {
+			if seen[e.pkg.Name] {
+				continue
+			}
+			seen[e.pkg.Name] = true
+			names = append(names, e.pkg.Name)
 		}
 		if err := client.ValidatePrompts(ctx, names); err != nil {
 			return nil, fmt.Errorf("validating prompts for workspace %q: %w", workspace, err)
 		}
 	}
 
-	// 6. Resolve each prompt
 	updateSet := make(map[string]bool)
 	for _, name := range r.opts.UpdateOnly {
 		updateSet[name] = true
@@ -125,38 +133,42 @@ func (r *Resolver) Install(ctx context.Context) (*Result, error) {
 	result := &Result{}
 	newLockfile := lockfile.NewLockfile()
 
-	for workspace, refs := range byWorkspace {
+	for workspace, ws := range byWorkspace {
 		client := factory(workspace)
-		for _, rc := range refs {
-			entry, err := r.resolvePrompt(ctx, client, dc, existing, rc.ref, rc.constraint, updateSet)
+		for _, e := range ws {
+			internal, err := r.resolveOne(ctx, client, dc, existing, e.entry, e.pkg, updateSet)
 			if err != nil {
-				return nil, fmt.Errorf("resolving %q: %w", rc.ref.Raw, err)
+				return nil, fmt.Errorf("resolving %q: %w", e.entry.Alias, err)
 			}
 
-			newLockfile.Resolved[rc.ref.Raw] = lockfile.ResolvedPrompt{
-				Version:      entry.Version,
-				IntegritySHA: entry.integritySHA,
-				Constraint:   rc.constraint,
-				Status:       entry.Status,
-				ResolvedAt:   entry.resolvedAt,
+			rp := lockfile.ResolvedPrompt{
+				Version:      internal.Version,
+				IntegritySHA: internal.integritySHA,
+				Constraint:   e.entry.Constraint,
+				Status:       internal.Status,
+				ResolvedAt:   internal.resolvedAt,
 			}
+			if e.entry.IsAlias() {
+				rp.Package = e.entry.Package
+			}
+			newLockfile.Resolved[e.entry.Alias] = rp
 
 			result.Entries = append(result.Entries, ResolvedEntry{
-				Name:       rc.ref.Raw,
-				Version:    entry.Version,
-				Constraint: rc.constraint,
-				Status:     entry.Status,
-				Fetched:    entry.fetched,
+				Alias:      e.entry.Alias,
+				Package:    e.entry.Package,
+				Version:    internal.Version,
+				Constraint: e.entry.Constraint,
+				Status:     internal.Status,
+				Fetched:    internal.fetched,
 			})
 
-			if entry.Status == "DRAFT" {
+			if internal.Status == "DRAFT" {
 				result.DraftWarnings = append(result.DraftWarnings,
-					fmt.Sprintf("prompt %q resolved to draft version %s", rc.ref.Raw, entry.Version))
+					fmt.Sprintf("prompt %q resolved to draft version %s", e.entry.Alias, internal.Version))
 			}
 		}
 	}
 
-	// 7. Frozen check
 	if r.opts.Frozen {
 		diffs := computeDiffs(existing, newLockfile)
 		if len(diffs) > 0 {
@@ -164,9 +176,26 @@ func (r *Resolver) Install(ctx context.Context) (*Result, error) {
 		}
 	}
 
-	// 8. Write lockfile
 	if err := lockfile.Save(r.opts.LockfilePath, newLockfile); err != nil {
 		return nil, fmt.Errorf("saving lockfile: %w", err)
+	}
+
+	// Drop cache files no longer referenced by the lockfile. Keep set is the
+	// (package, version) tuples implied by the new lockfile.
+	keep := make(map[string]bool)
+	for alias, rp := range newLockfile.Resolved {
+		pkg := rp.Package
+		if pkg == "" {
+			pkg = alias
+		}
+		pkgRef, err := promptref.Parse(pkg)
+		if err != nil {
+			continue
+		}
+		keep[cache.Key(pkgRef.Raw, pkgRef.Name, rp.Version)] = true
+	}
+	if err := dc.PruneTo(keep); err != nil {
+		return nil, fmt.Errorf("pruning cache: %w", err)
 	}
 
 	return result, nil
@@ -180,31 +209,35 @@ type resolvedPromptInternal struct {
 	fetched      bool
 }
 
-func (r *Resolver) resolvePrompt(
+func (r *Resolver) resolveOne(
 	ctx context.Context,
 	client fetcher.Client,
 	dc *cache.Cache,
 	existing *lockfile.Lockfile,
-	ref promptref.PromptRef,
-	constraint string,
+	entry config.PromptEntry,
+	pkg promptref.PromptRef,
 	updateSet map[string]bool,
 ) (*resolvedPromptInternal, error) {
-	cacheKey := promptref.CacheKey(ref)
-	existingEntry, hasEntry := existing.Resolved[ref.Raw]
+	existingEntry, hasEntry := existing.Resolved[entry.Alias]
 
-	// Determine if we need to fetch from API
+	// If the underlying package or constraint changed, force a fetch.
+	existingPackage := existingEntry.Package
+	if existingPackage == "" {
+		existingPackage = entry.Alias
+	}
 	needsFetch := !hasEntry ||
-		existingEntry.Constraint != constraint ||
+		existingEntry.Constraint != entry.Constraint ||
+		existingPackage != entry.Package ||
 		r.opts.ForceAll ||
-		updateSet[ref.Raw]
+		updateSet[entry.Alias]
 
-	// If we don't think we need a fetch, verify the cache is intact
 	if !needsFetch {
+		cacheKey := cache.Key(pkg.Raw, pkg.Name, existingEntry.Version)
 		cached, err := dc.Load(cacheKey)
 		if err != nil {
-			needsFetch = true // cache miss
+			needsFetch = true
 		} else if integrity.Verify(cached, existingEntry.IntegritySHA) != nil {
-			needsFetch = true // cache corrupt
+			needsFetch = true
 		}
 	}
 
@@ -221,7 +254,7 @@ func (r *Resolver) resolvePrompt(
 	// Fetch from API. The "draft" sentinel constraint requires status=DRAFT;
 	// every other constraint resolves against published versions only.
 	var status *fetcher.PromptVersionStatus
-	if constraint == "draft" {
+	if entry.Constraint == "draft" {
 		s := fetcher.StatusDraft
 		status = &s
 	} else {
@@ -229,12 +262,15 @@ func (r *Resolver) resolvePrompt(
 		status = &s
 	}
 
-	pd, err := client.FetchPromptVersion(ctx, ref.Name, constraint, status)
+	pd, err := client.FetchPromptVersion(ctx, pkg.Name, entry.Constraint, status)
 	if err != nil {
 		return nil, err
 	}
 
-	pd.Ref = ref.Raw
+	// The cache stores the underlying package's identity, not the alias —
+	// two aliases pointing at the same backing version share one file.
+	pd.Ref = pkg.Raw
+	pd.Name = pkg.Name
 
 	sha := integrity.Compute(pd)
 
@@ -242,11 +278,9 @@ func (r *Resolver) resolvePrompt(
 		return nil, fmt.Errorf("caching prompt: %w", err)
 	}
 
-	resolvedStatus := pd.Status
-
 	return &resolvedPromptInternal{
 		Version:      pd.Version,
-		Status:       resolvedStatus,
+		Status:       pd.Status,
 		integritySHA: sha,
 		resolvedAt:   time.Now().UTC(),
 		fetched:      true,
@@ -256,7 +290,6 @@ func (r *Resolver) resolvePrompt(
 func computeDiffs(old, new *lockfile.Lockfile) []PromptDiff {
 	var diffs []PromptDiff
 
-	// Check for changes and additions
 	for name, newEntry := range new.Resolved {
 		oldEntry, exists := old.Resolved[name]
 		if !exists {
@@ -276,7 +309,6 @@ func computeDiffs(old, new *lockfile.Lockfile) []PromptDiff {
 		}
 	}
 
-	// Check for removals
 	for name, oldEntry := range old.Resolved {
 		if _, exists := new.Resolved[name]; !exists {
 			diffs = append(diffs, PromptDiff{

@@ -46,11 +46,3 @@ func TestParse_NoSlash(t *testing.T) {
 	}
 }
 
-func TestCacheKey(t *testing.T) {
-	ref := PromptRef{Workspace: "wtomas", Name: "my-prompt", Raw: "@wtomas/my-prompt"}
-	got := CacheKey(ref)
-	want := "@wtomas__my-prompt"
-	if got != want {
-		t.Errorf("CacheKey = %q, want %q", got, want)
-	}
-}

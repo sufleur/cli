@@ -40,7 +40,7 @@ var updateCmd = &cobra.Command{
 			if e.Fetched {
 				status = "updated"
 			}
-			fmt.Printf("  %s@%s (%s)\n", e.Name, e.Version, status)
+			fmt.Printf("  %s@%s (%s)\n", e.Alias, e.Version, status)
 		}
 
 		fmt.Printf("\nUpdated %d prompt(s).\n", len(result.Entries))

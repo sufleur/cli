@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/WTomas/sufleur-cli/internal/cache"
 	"github.com/WTomas/sufleur-cli/internal/config"
 	"github.com/WTomas/sufleur-cli/internal/fetcher"
 	"github.com/WTomas/sufleur-cli/internal/generator"
@@ -70,8 +71,9 @@ func makePromptData(name, version string) *generator.PromptData {
 	}
 }
 
-// storeInCache writes prompt data as JSON into the cache directory.
-func storeInCache(t *testing.T, cacheDir, cacheKey string, pd *generator.PromptData) {
+// storeInCache writes prompt data as JSON into the cache directory using the
+// cache package's filename convention.
+func storeInCache(t *testing.T, cacheDir string, pd *generator.PromptData) {
 	t.Helper()
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		t.Fatalf("creating cache dir: %v", err)
@@ -80,7 +82,8 @@ func storeInCache(t *testing.T, cacheDir, cacheKey string, pd *generator.PromptD
 	if err != nil {
 		t.Fatalf("marshaling prompt data: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(cacheDir, cacheKey+".json"), data, 0644); err != nil {
+	key := cache.Key(pd.Ref, pd.Name, pd.Version)
+	if err := os.WriteFile(filepath.Join(cacheDir, key+".json"), data, 0644); err != nil {
 		t.Fatalf("writing cache file: %v", err)
 	}
 }
@@ -125,7 +128,7 @@ func TestFreshInstall(t *testing.T) {
 
 	for _, e := range result.Entries {
 		if !e.Fetched {
-			t.Errorf("expected %s to be fetched", e.Name)
+			t.Errorf("expected %s to be fetched", e.Alias)
 		}
 	}
 
@@ -171,7 +174,7 @@ func TestInstall_ValidCache_SkipsFetch(t *testing.T) {
 
 	// Pre-populate valid cache with sanitized ref key
 	cacheDir := filepath.Join(dir, ".sufleur")
-	storeInCache(t, cacheDir, "@test__greeting", pd)
+	storeInCache(t, cacheDir, pd)
 
 	mock := &mockClient{
 		prompts: map[string]*generator.PromptData{
@@ -196,7 +199,7 @@ func TestInstall_ValidCache_SkipsFetch(t *testing.T) {
 
 	for _, e := range result.Entries {
 		if e.Fetched {
-			t.Errorf("expected %s to not be fetched (cache hit)", e.Name)
+			t.Errorf("expected %s to not be fetched (cache hit)", e.Alias)
 		}
 	}
 }
@@ -252,7 +255,7 @@ func TestInstall_CorruptedCache_Refetches(t *testing.T) {
 
 	for _, e := range result.Entries {
 		if !e.Fetched {
-			t.Errorf("expected %s to be fetched (cache was corrupt)", e.Name)
+			t.Errorf("expected %s to be fetched (cache was corrupt)", e.Alias)
 		}
 	}
 }
@@ -333,7 +336,7 @@ func TestFrozen_Pass(t *testing.T) {
 
 	// Pre-populate valid cache
 	cacheDir := filepath.Join(dir, ".sufleur")
-	storeInCache(t, cacheDir, "@test__greeting", pd)
+	storeInCache(t, cacheDir, pd)
 
 	mock := &mockClient{
 		prompts: map[string]*generator.PromptData{
@@ -450,7 +453,7 @@ func TestDraftConstraint(t *testing.T) {
 
 	// Lockfile records the literal "draft" version for the draft-constrained prompt.
 	for _, e := range result.Entries {
-		if e.Name == "@test/greeting" {
+		if e.Alias == "@test/greeting" {
 			if e.Status != "DRAFT" {
 				t.Errorf("expected greeting status=DRAFT in result, got %s", e.Status)
 			}
@@ -499,8 +502,8 @@ func TestUpdate_SinglePrompt(t *testing.T) {
 
 	// Pre-populate cache for both using sanitized ref keys
 	cacheDir := filepath.Join(dir, ".sufleur")
-	storeInCache(t, cacheDir, "@test__greeting", greetingPD)
-	storeInCache(t, cacheDir, "@test__farewell", farewellPD)
+	storeInCache(t, cacheDir, greetingPD)
+	storeInCache(t, cacheDir, farewellPD)
 
 	// API returns newer greeting
 	updatedGreeting := makePromptData("greeting", "1.5.0")
@@ -530,7 +533,7 @@ func TestUpdate_SinglePrompt(t *testing.T) {
 	}
 
 	for _, e := range result.Entries {
-		if e.Name == "@test/greeting" {
+		if e.Alias == "@test/greeting" {
 			if !e.Fetched {
 				t.Error("expected greeting to be fetched")
 			}
@@ -538,7 +541,7 @@ func TestUpdate_SinglePrompt(t *testing.T) {
 				t.Errorf("greeting version = %s, want 1.5.0", e.Version)
 			}
 		}
-		if e.Name == "@test/farewell" && e.Fetched {
+		if e.Alias == "@test/farewell" && e.Fetched {
 			t.Error("expected farewell to not be fetched")
 		}
 	}
@@ -582,8 +585,8 @@ func TestUpdate_AllPrompts(t *testing.T) {
 
 	// Pre-populate cache
 	cacheDir := filepath.Join(dir, ".sufleur")
-	storeInCache(t, cacheDir, "@test__greeting", greetingPD)
-	storeInCache(t, cacheDir, "@test__farewell", farewellPD)
+	storeInCache(t, cacheDir, greetingPD)
+	storeInCache(t, cacheDir, farewellPD)
 
 	mock := &mockClient{
 		prompts: map[string]*generator.PromptData{
@@ -610,7 +613,7 @@ func TestUpdate_AllPrompts(t *testing.T) {
 
 	for _, e := range result.Entries {
 		if !e.Fetched {
-			t.Errorf("expected %s to be fetched (update all)", e.Name)
+			t.Errorf("expected %s to be fetched (update all)", e.Alias)
 		}
 	}
 }

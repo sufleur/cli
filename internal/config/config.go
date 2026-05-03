@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/WTomas/sufleur-cli/internal/promptref"
 )
 
 // DefaultEndpoint is the production Sufleur API endpoint.
@@ -23,6 +26,82 @@ type SufleurConfig struct {
 type OutputConfig struct {
 	Language string `yaml:"language"` // "typescript" | "python"
 	File     string `yaml:"file"`     // output file path
+}
+
+// PromptEntry is one parsed entry from the `prompts:` map. Package == Alias
+// for non-aliased entries. For aliased entries, Alias is the YAML key the user
+// invokes from generated code, while Package is the underlying registry
+// reference (workspace + name) the resolver fetches.
+type PromptEntry struct {
+	Alias      string // sufleur.yaml key, e.g. "@wtomas/old-foo"
+	Package    string // underlying ref, e.g. "@wtomas/foo"
+	Constraint string // semver constraint or "draft"
+}
+
+// IsAlias reports whether the entry points at a different package than its key.
+func (e PromptEntry) IsAlias() bool {
+	return e.Package != e.Alias
+}
+
+// PromptEntries returns the parsed list of (alias, package, constraint)
+// triples in deterministic order (alias key sorted alphabetically). A value
+// that begins with "@" and contains another "@" is treated as an alias spec
+// of the form "<package_ref>@<constraint>"; anything else is a plain
+// constraint applied to the key itself.
+func (c SufleurConfig) PromptEntries() ([]PromptEntry, error) {
+	keys := make([]string, 0, len(c.Prompts))
+	for k := range c.Prompts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	out := make([]PromptEntry, 0, len(keys))
+	for _, k := range keys {
+		entry, err := ParsePromptEntry(k, c.Prompts[k])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+// ParsePromptEntry interprets one (key, value) pair from the prompts map.
+// Exposed so the CLI can validate user-supplied input before writing YAML.
+func ParsePromptEntry(key, value string) (PromptEntry, error) {
+	if value == "" {
+		return PromptEntry{}, fmt.Errorf("prompt %q has empty value", key)
+	}
+	// Plain constraint: doesn't start with "@".
+	if !strings.HasPrefix(value, "@") {
+		return PromptEntry{Alias: key, Package: key, Constraint: value}, nil
+	}
+	// Alias spec: "@workspace/name@constraint". Split on the rightmost "@"
+	// so the leading workspace "@" is preserved.
+	at := strings.LastIndex(value, "@")
+	if at <= 0 {
+		return PromptEntry{}, fmt.Errorf("prompt %q has malformed alias spec %q", key, value)
+	}
+	pkg := value[:at]
+	constraint := value[at+1:]
+	if pkg == "" || constraint == "" {
+		return PromptEntry{}, fmt.Errorf("prompt %q alias spec %q must be \"@workspace/name@constraint\"", key, value)
+	}
+	if _, err := promptref.Parse(pkg); err != nil {
+		return PromptEntry{}, fmt.Errorf("prompt %q alias package %q invalid: %w", key, pkg, err)
+	}
+	return PromptEntry{Alias: key, Package: pkg, Constraint: constraint}, nil
+}
+
+// FormatPromptValue produces the YAML value for a (package, constraint) pair,
+// taking aliasing into account. For non-aliased entries (alias == package)
+// the value is the bare constraint; for aliased entries it's
+// "<package>@<constraint>".
+func FormatPromptValue(alias, pkg, constraint string) string {
+	if alias == pkg {
+		return constraint
+	}
+	return pkg + "@" + constraint
 }
 
 // Config is the resolved runtime configuration.

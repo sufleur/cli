@@ -1,7 +1,9 @@
 package lockfile
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -90,6 +92,75 @@ func TestTimestampPreservation(t *testing.T) {
 	if !got.Equal(ts) {
 		t.Errorf("ResolvedAt = %v, want %v", got, ts)
 	}
+}
+
+func TestAliasedEntry_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sufleur-lock.yaml")
+	now := time.Now().UTC()
+
+	original := &Lockfile{
+		Resolved: map[string]ResolvedPrompt{
+			"@wtomas/legacy-foo": {
+				Package:      "@wtomas/foo",
+				Version:      "0.1.5",
+				IntegritySHA: "sha256-abc",
+				Constraint:   "^0.1.0",
+				Status:       "PUBLISHED",
+				ResolvedAt:   now,
+			},
+			"@wtomas/foo": {
+				// non-aliased entry — Package left empty
+				Version:      "0.2.1",
+				IntegritySHA: "sha256-def",
+				Constraint:   "^0.2.0",
+				Status:       "PUBLISHED",
+				ResolvedAt:   now,
+			},
+		},
+	}
+
+	if err := Save(path, original); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	yaml := string(data)
+	if !strings.Contains(yaml, "package: '@wtomas/foo'") && !strings.Contains(yaml, "package: \"@wtomas/foo\"") {
+		t.Errorf("aliased entry should serialize the package field; got:\n%s", yaml)
+	}
+	// Non-aliased entry must NOT include a `package:` line so existing
+	// lockfiles stay byte-equivalent for non-aliased projects.
+	fooSection := extractSection(yaml, "@wtomas/foo:", "@wtomas/legacy-foo:")
+	if strings.Contains(fooSection, "package:") {
+		t.Errorf("non-aliased entry should omit the package field; got section:\n%s", fooSection)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Resolved["@wtomas/legacy-foo"].Package != "@wtomas/foo" {
+		t.Errorf("Package field lost on round-trip: %+v", loaded.Resolved["@wtomas/legacy-foo"])
+	}
+	if loaded.Resolved["@wtomas/foo"].Package != "" {
+		t.Errorf("Package should round-trip empty for non-aliased entry: %+v", loaded.Resolved["@wtomas/foo"])
+	}
+}
+
+func extractSection(s, start, end string) string {
+	i := strings.Index(s, start)
+	if i < 0 {
+		return ""
+	}
+	rest := s[i:]
+	j := strings.Index(rest, end)
+	if j < 0 {
+		return rest
+	}
+	return rest[:j]
 }
 
 func TestEmptyResolvedMap(t *testing.T) {
