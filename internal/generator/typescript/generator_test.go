@@ -25,19 +25,17 @@ func generateAndRead(t *testing.T, prompts []generator.PromptData) string {
 
 func TestSinglePromptFullSchema(t *testing.T) {
 	userInputSchema := map[string]interface{}{
-		"kind": "object",
+		"type": "object",
 		"properties": map[string]interface{}{
 			"user": map[string]interface{}{
-				"kind": "object",
+				"type": "object",
 				"properties": map[string]interface{}{
 					"name": map[string]interface{}{
-						"kind":        "primitive",
 						"type":        "string",
 						"description": "User's name",
 					},
 					"age": map[string]interface{}{
-						"kind":        "primitive",
-						"type":        "int",
+						"type":        "integer",
 						"description": "User's age in years",
 					},
 				},
@@ -45,10 +43,9 @@ func TestSinglePromptFullSchema(t *testing.T) {
 		},
 	}
 	systemInputSchema := map[string]interface{}{
-		"kind": "object",
+		"type": "object",
 		"properties": map[string]interface{}{
 			"tone": map[string]interface{}{
-				"kind": "primitive",
 				"type": "string",
 			},
 		},
@@ -84,9 +81,9 @@ func TestSinglePromptFullSchema(t *testing.T) {
 
 	output := generateAndRead(t, prompts)
 
-	// Per-entrypoint input interfaces use PascalCase from full ref + entrypoint name
-	assertContains(t, output, "export interface WtomasEmailSubjectGenerator_UserPromptInput")
-	assertContains(t, output, "export interface WtomasEmailSubjectGenerator_SystemPromptInput")
+	// Per-entrypoint input types use PascalCase from full ref + entrypoint name
+	assertContains(t, output, "export type WtomasEmailSubjectGenerator_UserPromptInput =")
+	assertContains(t, output, "export type WtomasEmailSubjectGenerator_SystemPromptInput =")
 	assertContains(t, output, "name: string;")
 	assertContains(t, output, "age: number;")
 	assertContains(t, output, "tone: string;")
@@ -167,9 +164,9 @@ func TestPromptWithNoSystemPrompt(t *testing.T) {
 					Content:      "Hello {{name}}",
 					IsEntrypoint: true,
 					InputSchema: map[string]interface{}{
-						"kind": "object",
+						"type": "object",
 						"properties": map[string]interface{}{
-							"name": map[string]interface{}{"kind": "primitive", "type": "string"},
+							"name": map[string]interface{}{"type": "string"},
 						},
 					},
 				},
@@ -180,9 +177,9 @@ func TestPromptWithNoSystemPrompt(t *testing.T) {
 	output := generateAndRead(t, prompts)
 
 	// User prompt input type emitted
-	assertContains(t, output, "export interface TestSimplePrompt_UserPromptInput")
-	// No system prompt entrypoint, so no input interface for it
-	assertNotContains(t, output, "export interface TestSimplePrompt_SystemPromptInput")
+	assertContains(t, output, "export type TestSimplePrompt_UserPromptInput =")
+	// No system prompt entrypoint, so no input type for it
+	assertNotContains(t, output, "TestSimplePrompt_SystemPromptInput")
 	// EntrypointMapping has no systemPrompt entry (only userPrompt)
 	assertNotContains(t, output, "'systemPrompt':")
 }
@@ -220,9 +217,9 @@ func TestCustomEntrypointName(t *testing.T) {
 					Content:      "Assist with {{topic}}",
 					IsEntrypoint: true,
 					InputSchema: map[string]interface{}{
-						"kind": "object",
+						"type": "object",
 						"properties": map[string]interface{}{
-							"topic": map[string]interface{}{"kind": "primitive", "type": "string"},
+							"topic": map[string]interface{}{"type": "string"},
 						},
 					},
 				},
@@ -237,8 +234,8 @@ func TestCustomEntrypointName(t *testing.T) {
 
 	output := generateAndRead(t, prompts)
 
-	// Custom entrypoint names produce input interfaces named after the entrypoint
-	assertContains(t, output, "export interface TestMultiEntry_AssistantPromptInput")
+	// Custom entrypoint names produce input types named after the entrypoint
+	assertContains(t, output, "export type TestMultiEntry_AssistantPromptInput =")
 	assertContains(t, output, "topic: string;")
 
 	// Both entrypoints appear in EntrypointMapping
@@ -299,47 +296,47 @@ func TestSchemaTypeMappings(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "string primitive",
-			schema:   map[string]interface{}{"kind": "primitive", "type": "string"},
+			name:     "string",
+			schema:   map[string]interface{}{"type": "string"},
 			expected: "string",
 		},
 		{
-			name:     "int primitive",
-			schema:   map[string]interface{}{"kind": "primitive", "type": "int"},
+			name:     "integer",
+			schema:   map[string]interface{}{"type": "integer"},
 			expected: "number",
 		},
 		{
-			name:     "float primitive",
-			schema:   map[string]interface{}{"kind": "primitive", "type": "float"},
+			name:     "number",
+			schema:   map[string]interface{}{"type": "number"},
 			expected: "number",
 		},
 		{
-			name:     "boolean primitive",
-			schema:   map[string]interface{}{"kind": "primitive", "type": "boolean"},
+			name:     "boolean",
+			schema:   map[string]interface{}{"type": "boolean"},
 			expected: "boolean",
 		},
 		{
-			name:     "unknown primitive",
-			schema:   map[string]interface{}{"kind": "primitive", "type": "unknown"},
+			name:     "empty schema falls through to unknown",
+			schema:   map[string]interface{}{},
 			expected: "unknown",
 		},
 		{
 			name: "array of strings",
 			schema: map[string]interface{}{
-				"kind":        "array",
-				"elementType": map[string]interface{}{"kind": "primitive", "type": "string"},
+				"type":  "array",
+				"items": map[string]interface{}{"type": "string"},
 			},
 			expected: "string[]",
 		},
 		{
 			name: "nested object",
 			schema: map[string]interface{}{
-				"kind": "object",
+				"type": "object",
 				"properties": map[string]interface{}{
 					"inner": map[string]interface{}{
-						"kind": "object",
+						"type": "object",
 						"properties": map[string]interface{}{
-							"value": map[string]interface{}{"kind": "primitive", "type": "string"},
+							"value": map[string]interface{}{"type": "string"},
 						},
 					},
 				},
@@ -434,10 +431,9 @@ func TestFieldDescriptions(t *testing.T) {
 					Content:      "Hi {{name}}",
 					IsEntrypoint: true,
 					InputSchema: map[string]interface{}{
-						"kind": "object",
+						"type": "object",
 						"properties": map[string]interface{}{
 							"name": map[string]interface{}{
-								"kind":        "primitive",
 								"type":        "string",
 								"description": "The user's full name",
 							},
@@ -514,9 +510,9 @@ func TestRefUsedAsKey(t *testing.T) {
 					Content:      "Hello {{name}}",
 					IsEntrypoint: true,
 					InputSchema: map[string]interface{}{
-						"kind": "object",
+						"type": "object",
 						"properties": map[string]interface{}{
-							"name": map[string]interface{}{"kind": "primitive", "type": "string"},
+							"name": map[string]interface{}{"type": "string"},
 						},
 					},
 				},
@@ -544,9 +540,9 @@ func TestFallbackToNameWhenNoRef(t *testing.T) {
 					Content:      "Hello {{name}}",
 					IsEntrypoint: true,
 					InputSchema: map[string]interface{}{
-						"kind": "object",
+						"type": "object",
 						"properties": map[string]interface{}{
-							"name": map[string]interface{}{"kind": "primitive", "type": "string"},
+							"name": map[string]interface{}{"type": "string"},
 						},
 					},
 				},

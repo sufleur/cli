@@ -216,39 +216,32 @@ func extractMetadataValues(m map[string]interface{}) map[string]interface{} {
 	return result
 }
 
-// schemaToTSType converts a schema node to a TypeScript type string.
+// schemaToTSType converts a JSON Schema node to a TypeScript type string.
+// The backend serves standard JSON Schema for both input and output schemas
+// (type/properties/items/required), so we read `type` here.
 func schemaToTSType(schema map[string]interface{}, indent int) string {
-	kind, _ := schema["kind"].(string)
-
-	switch kind {
-	case "primitive":
-		return primitiveToTS(schema)
-	case "object":
-		return objectToTS(schema, indent)
-	case "array":
-		return arrayToTS(schema, indent)
-	default:
-		return "unknown"
-	}
-}
-
-func primitiveToTS(schema map[string]interface{}) string {
 	t, _ := schema["type"].(string)
 	switch t {
 	case "string":
 		return "string"
-	case "int", "float":
+	case "integer", "number":
 		return "number"
 	case "boolean":
 		return "boolean"
-	default:
-		return "unknown"
+	case "null":
+		return "null"
+	case "array":
+		return arrayToTS(schema, indent)
+	case "object":
+		return objectToTS(schema, indent)
 	}
+	// Empty schema or untyped property — treat as opaque.
+	return "unknown"
 }
 
 func objectToTS(schema map[string]interface{}, indent int) string {
 	props, ok := schema["properties"].(map[string]interface{})
-	if !ok {
+	if !ok || len(props) == 0 {
 		return "Record<string, unknown>"
 	}
 
@@ -290,11 +283,11 @@ func objectToTS(schema map[string]interface{}, indent int) string {
 }
 
 func arrayToTS(schema map[string]interface{}, indent int) string {
-	elementType, ok := schema["elementType"].(map[string]interface{})
+	items, ok := schema["items"].(map[string]interface{})
 	if !ok {
 		return "unknown[]"
 	}
-	ts := schemaToTSType(elementType, indent)
+	ts := schemaToTSType(items, indent)
 	// Wrap complex types in parens for array syntax
 	if strings.Contains(ts, "\n") {
 		return "(" + ts + ")[]"
@@ -340,7 +333,7 @@ interface PromptOutput {
 {{range $p := .Prompts}}
 {{- range $p.Entrypoints}}
 {{- if .HasInput}}
-export interface {{$p.PascalName}}_{{.PascalEntry}}Input {{.InputType}}
+export type {{$p.PascalName}}_{{.PascalEntry}}Input = {{.InputType}};
 {{end}}
 {{- end}}
 {{- end}}

@@ -197,24 +197,33 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 	}
 }
 
-// collectTypedDicts recursively walks a schema and emits TypedDict classes.
-// It returns the Python type string for this schema node.
+// collectTypedDicts recursively walks a JSON Schema and emits TypedDict classes.
+// It returns the Python type string for this schema node. The backend serves
+// standard JSON Schema (type/properties/items), so we read `type` here.
 func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes *[]typedDictClass, isTopLevel bool) string {
-	kind, _ := schema["kind"].(string)
+	t, _ := schema["type"].(string)
 
-	switch kind {
-	case "primitive":
-		return primitiveToPython(schema)
+	switch t {
+	case "string":
+		return "str"
+	case "integer":
+		return "int"
+	case "number":
+		return "float"
+	case "boolean":
+		return "bool"
+	case "null":
+		return "None"
 	case "array":
-		elementType, ok := schema["elementType"].(map[string]interface{})
+		items, ok := schema["items"].(map[string]interface{})
 		if !ok {
 			return "list[Any]"
 		}
-		inner := collectTypedDicts(elementType, namePrefix, classes, false)
+		inner := collectTypedDicts(items, namePrefix, classes, false)
 		return "list[" + inner + "]"
 	case "object":
 		props, ok := schema["properties"].(map[string]interface{})
-		if !ok {
+		if !ok || len(props) == 0 {
 			return "dict[str, Any]"
 		}
 
@@ -255,25 +264,9 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 		}
 		*classes = append(*classes, cls)
 		return className
-	default:
-		return "Any"
 	}
-}
-
-func primitiveToPython(schema map[string]interface{}) string {
-	t, _ := schema["type"].(string)
-	switch t {
-	case "string":
-		return "str"
-	case "int":
-		return "int"
-	case "float":
-		return "float"
-	case "boolean":
-		return "bool"
-	default:
-		return "Any"
-	}
+	// Empty schema or untyped property — treat as opaque.
+	return "Any"
 }
 
 // toPascalCase converts kebab-case, snake_case, or @workspace/name to PascalCase.
