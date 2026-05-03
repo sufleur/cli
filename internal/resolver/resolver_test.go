@@ -21,14 +21,20 @@ type mockClient struct {
 	validateErr error
 	prompts     map[string]*generator.PromptData
 	fetchCalls  int
+	// Records the last status passed for each prompt name (nil means unset).
+	lastStatus map[string]*fetcher.PromptVersionStatus
 }
 
 func (m *mockClient) ValidatePrompts(_ context.Context, _ []string) error {
 	return m.validateErr
 }
 
-func (m *mockClient) FetchPromptVersion(_ context.Context, promptName, _ string, _ *fetcher.PromptVersionStatus) (*generator.PromptData, error) {
+func (m *mockClient) FetchPromptVersion(_ context.Context, promptName, _ string, status *fetcher.PromptVersionStatus) (*generator.PromptData, error) {
 	m.fetchCalls++
+	if m.lastStatus == nil {
+		m.lastStatus = map[string]*fetcher.PromptVersionStatus{}
+	}
+	m.lastStatus[promptName] = status
 	pd, ok := m.prompts[promptName]
 	if !ok {
 		return nil, errors.New("prompt not found")
@@ -397,18 +403,21 @@ func TestFrozen_Fail(t *testing.T) {
 	}
 }
 
-func TestDraftMode(t *testing.T) {
+func TestDraftConstraint(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := writeTestConfig(t, dir, map[string]string{
-		"@test/greeting": "^1.0.0",
+		"@test/greeting": "draft",
+		"@test/farewell": "^2.0.0",
 	})
 
-	draftPD := makePromptData("greeting", "1.3.0-draft.1")
+	draftPD := makePromptData("greeting", "draft")
 	draftPD.Status = "DRAFT"
+	farewellPD := makePromptData("farewell", "2.0.3")
 
 	mock := &mockClient{
 		prompts: map[string]*generator.PromptData{
 			"greeting": draftPD,
+			"farewell": farewellPD,
 		},
 	}
 
@@ -416,7 +425,6 @@ func TestDraftMode(t *testing.T) {
 		ConfigPath:   cfgPath,
 		LockfilePath: filepath.Join(dir, "sufleur-lock.yaml"),
 		CacheDir:     filepath.Join(dir, ".sufleur"),
-		Draft:        true,
 	}, mockFactory(mock))
 
 	result, err := r.Install(context.Background())
@@ -424,13 +432,31 @@ func TestDraftMode(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
+	// Draft constraint surfaces a warning for that prompt only.
 	if len(result.DraftWarnings) != 1 {
 		t.Errorf("expected 1 draft warning, got %d", len(result.DraftWarnings))
 	}
 
+	// The mock received status=DRAFT for the draft-constrained prompt
+	// and status=PUBLISHED for the semver-constrained one.
+	greetingStatus := mock.lastStatus["greeting"]
+	if greetingStatus == nil || *greetingStatus != fetcher.StatusDraft {
+		t.Errorf("expected greeting status=DRAFT, got %v", greetingStatus)
+	}
+	farewellStatus := mock.lastStatus["farewell"]
+	if farewellStatus == nil || *farewellStatus != fetcher.StatusPublished {
+		t.Errorf("expected farewell status=PUBLISHED, got %v", farewellStatus)
+	}
+
+	// Lockfile records the literal "draft" version for the draft-constrained prompt.
 	for _, e := range result.Entries {
-		if e.Status != "DRAFT" {
-			t.Errorf("expected DRAFT status, got %s", e.Status)
+		if e.Name == "@test/greeting" {
+			if e.Status != "DRAFT" {
+				t.Errorf("expected greeting status=DRAFT in result, got %s", e.Status)
+			}
+			if e.Version != "draft" {
+				t.Errorf("expected greeting version=draft, got %s", e.Version)
+			}
 		}
 	}
 }

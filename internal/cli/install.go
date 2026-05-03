@@ -13,7 +13,6 @@ var installCmd = &cobra.Command{
 	Short: "Resolve, fetch, and cache all configured prompts",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		frozen, _ := cmd.Flags().GetBool("frozen")
-		draft, _ := cmd.Flags().GetBool("draft")
 		verbose, _ := cmd.Flags().GetBool("verbose")
 
 		r := resolver.New(resolver.Options{
@@ -21,7 +20,6 @@ var installCmd = &cobra.Command{
 			LockfilePath: "sufleur-lock.yaml",
 			CacheDir:     ".sufleur",
 			Frozen:       frozen,
-			Draft:        draft,
 			Verbose:      verbose,
 		})
 
@@ -49,5 +47,4 @@ var installCmd = &cobra.Command{
 
 func init() {
 	installCmd.Flags().Bool("frozen", false, "Fail if lockfile is out of date (CI mode)")
-	installCmd.Flags().Bool("draft", false, "Include draft prompt versions")
 }

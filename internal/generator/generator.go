@@ -8,22 +8,30 @@ import (
 
 // PromptData holds the resolved prompt information needed for code generation.
 type PromptData struct {
-	Ref                     string // full "@workspace/prompt-name" reference
-	Name                    string
-	Version                 string
-	Description             string
-	Status                  string                 // "PUBLISHED" or "DRAFT"
-	Metadata                map[string]interface{} // model, provider, temperature, etc.
-	UserPromptInputSchema   map[string]interface{}
-	SystemPromptInputSchema map[string]interface{}
-	OutputSchema            map[string]interface{} // nullable JSON Schema for structured output
-	Files                   []PromptFile
+	Ref          string // full "@workspace/prompt-name" reference
+	Name         string
+	Version      string
+	Description  string
+	Status       string                 // "PUBLISHED" or "DRAFT"
+	Metadata     map[string]interface{} // model, provider, temperature, etc.
+	OutputSchema map[string]interface{} // nullable JSON Schema for structured output
+	Files        []PromptFile
 }
 
 // PromptFile represents a single file within a prompt version.
+// Entrypoint files are rendered with Mustache; non-entrypoint files are partials.
 type PromptFile struct {
-	Name    string
-	Content string
+	Name           string
+	Content        string
+	IsEntrypoint   bool
+	InputSchema    map[string]interface{} // nullable; populated only for entrypoints
+	SchemaWarnings []SchemaWarning        // empty for non-entrypoints
+}
+
+// SchemaWarning is a single warning produced during input-schema inference.
+type SchemaWarning struct {
+	Path    string
+	Message string
 }
 
 // Generator produces language-specific code from prompt data.

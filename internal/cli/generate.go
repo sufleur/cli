@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -13,6 +14,27 @@ import (
 	_ "github.com/WTomas/sufleur-cli/internal/generator/python"
 	_ "github.com/WTomas/sufleur-cli/internal/generator/typescript"
 )
+
+// printSchemaWarnings emits one stderr line per inference warning across all
+// entrypoints. Called from generate; install also surfaces draft warnings,
+// but schema warnings only matter at codegen time.
+func printSchemaWarnings(prompts []generator.PromptData) {
+	for _, p := range prompts {
+		ref := p.Ref
+		if ref == "" {
+			ref = p.Name
+		}
+		for _, f := range p.Files {
+			for _, w := range f.SchemaWarnings {
+				if w.Path != "" {
+					fmt.Fprintf(os.Stderr, "[sufleur] %s:%s — warning: %s (path: %s)\n", ref, f.Name, w.Message, w.Path)
+				} else {
+					fmt.Fprintf(os.Stderr, "[sufleur] %s:%s — warning: %s\n", ref, f.Name, w.Message)
+				}
+			}
+		}
+	}
+}
 
 var generateCmd = &cobra.Command{
 	Use:   "generate",
@@ -59,7 +81,10 @@ var generateCmd = &cobra.Command{
 			return err
 		}
 
-		// 6. Generate
+		// 6. Surface backend-reported schema warnings
+		printSchemaWarnings(prompts)
+
+		// 7. Generate
 		outFile := cfg.Raw.Output.File
 		if err := gen.Generate(outFile, prompts); err != nil {
 			return fmt.Errorf("generating code: %w", err)

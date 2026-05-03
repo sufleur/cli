@@ -13,14 +13,18 @@ func samplePromptData() *generator.PromptData {
 		Name:        "greeting",
 		Version:     "1.2.0",
 		Description: "A greeting prompt",
-		UserPromptInputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"name": map[string]interface{}{"type": "string"},
-			},
-		},
 		Files: []generator.PromptFile{
-			{Name: "main.txt", Content: "Hello {{name}}"},
+			{
+				Name:         "main.txt",
+				Content:      "Hello {{name}}",
+				IsEntrypoint: true,
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name": map[string]interface{}{"type": "string"},
+					},
+				},
+			},
 			{Name: "system.txt", Content: "You are helpful"},
 		},
 	}
@@ -51,13 +55,22 @@ func TestCompute_DifferentDataDifferentHash(t *testing.T) {
 func TestCompute_FileOrderIndependence(t *testing.T) {
 	pd1 := samplePromptData()
 	pd2 := &generator.PromptData{
-		Name:                  pd1.Name,
-		Version:               pd1.Version,
-		Description:           pd1.Description,
-		UserPromptInputSchema: pd1.UserPromptInputSchema,
+		Name:        pd1.Name,
+		Version:     pd1.Version,
+		Description: pd1.Description,
 		Files: []generator.PromptFile{
 			{Name: "system.txt", Content: "You are helpful"},
-			{Name: "main.txt", Content: "Hello {{name}}"},
+			{
+				Name:         "main.txt",
+				Content:      "Hello {{name}}",
+				IsEntrypoint: true,
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name": map[string]interface{}{"type": "string"},
+					},
+				},
+			},
 		},
 	}
 

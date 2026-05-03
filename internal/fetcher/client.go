@@ -116,25 +116,34 @@ func (c *client) FetchPromptVersion(ctx context.Context, promptName, constraint 
 		return nil, fmt.Errorf("fetching prompt version: %w", err)
 	}
 
+	if q.Prompt.Version == nil {
+		return nil, fmt.Errorf("no version of %q matches constraint %q", promptName, constraint)
+	}
+
 	v := q.Prompt.Version
 	files := make([]generator.PromptFile, len(v.Files))
 	for i, f := range v.Files {
+		warnings := make([]generator.SchemaWarning, len(f.SchemaWarnings))
+		for j, w := range f.SchemaWarnings {
+			warnings[j] = generator.SchemaWarning{Path: w.Path, Message: w.Message}
+		}
 		files[i] = generator.PromptFile{
-			Name:    f.Name,
-			Content: f.Content,
+			Name:           f.Name,
+			Content:        f.Content,
+			IsEntrypoint:   f.IsEntrypoint,
+			InputSchema:    f.InputSchema,
+			SchemaWarnings: warnings,
 		}
 	}
 
 	return &generator.PromptData{
-		Name:                    promptName,
-		Version:                 v.Version,
-		Description:             q.Prompt.Description,
-		Status:                  v.Status,
-		Metadata:                v.Metadata,
-		UserPromptInputSchema:   v.UserPromptInputSchema,
-		SystemPromptInputSchema: v.SystemPromptInputSchema,
-		OutputSchema:            v.OutputSchema,
-		Files:                   files,
+		Name:         promptName,
+		Version:      v.Version,
+		Description:  q.Prompt.Description,
+		Status:       v.Status,
+		Metadata:     v.Metadata,
+		OutputSchema: v.OutputSchema,
+		Files:        files,
 	}, nil
 }
 

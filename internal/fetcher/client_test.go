@@ -88,12 +88,22 @@ func TestFetchPromptVersion_Success(t *testing.T) {
 						"version": "1.2.0",
 						"status": "PUBLISHED",
 						"metadata": {"model": "gpt-4"},
-						"userPromptInputSchema": {"type": "object", "properties": {"name": {"type": "string"}}},
-						"systemPromptInputSchema": null,
 						"outputSchema": null,
 						"files": [
-							{"name": "main.txt", "content": "Hello {{name}}"},
-							{"name": "system.txt", "content": "You are helpful"}
+							{
+								"name": "main.txt",
+								"content": "Hello {{name}}",
+								"isEntrypoint": true,
+								"inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}},
+								"schemaWarnings": []
+							},
+							{
+								"name": "system.txt",
+								"content": "You are helpful",
+								"isEntrypoint": false,
+								"inputSchema": null,
+								"schemaWarnings": []
+							}
 						]
 					}
 				}
@@ -121,20 +131,103 @@ func TestFetchPromptVersion_Success(t *testing.T) {
 	if len(pd.Files) != 2 {
 		t.Fatalf("expected 2 files, got %d", len(pd.Files))
 	}
-	if pd.Files[0].Name != "main.txt" || pd.Files[0].Content != "Hello {{name}}" {
-		t.Errorf("unexpected first file: %+v", pd.Files[0])
+
+	main := pd.Files[0]
+	if main.Name != "main.txt" || main.Content != "Hello {{name}}" {
+		t.Errorf("unexpected first file: %+v", main)
 	}
-	if pd.Files[1].Name != "system.txt" {
-		t.Errorf("unexpected second file: %+v", pd.Files[1])
+	if !main.IsEntrypoint {
+		t.Error("main.txt should be an entrypoint")
 	}
-	if pd.UserPromptInputSchema == nil {
-		t.Error("expected non-nil UserPromptInputSchema")
+	if main.InputSchema == nil {
+		t.Error("expected non-nil InputSchema on entrypoint")
 	}
-	if pd.SystemPromptInputSchema != nil {
-		t.Error("expected nil SystemPromptInputSchema")
+
+	sys := pd.Files[1]
+	if sys.Name != "system.txt" {
+		t.Errorf("unexpected second file: %+v", sys)
 	}
+	if sys.IsEntrypoint {
+		t.Error("system.txt should not be an entrypoint")
+	}
+	if sys.InputSchema != nil {
+		t.Error("expected nil InputSchema on non-entrypoint")
+	}
+
 	if pd.OutputSchema != nil {
 		t.Error("expected nil OutputSchema")
+	}
+}
+
+func TestFetchPromptVersion_NoMatchingVersion(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// version field is null when the constraint matches no published version
+		resp := `{
+			"data": {
+				"prompt": {
+					"description": "A test prompt",
+					"version": null
+				}
+			}
+		}`
+		w.Write([]byte(resp))
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, "test-key", "", false)
+	_, err := c.FetchPromptVersion(context.Background(), "test-prompt", "^99.0.0", nil)
+	if err == nil {
+		t.Fatal("expected error for null version, got nil")
+	}
+}
+
+func TestFetchPromptVersion_SchemaWarnings(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := `{
+			"data": {
+				"prompt": {
+					"description": "Has warnings",
+					"version": {
+						"version": "1.0.0",
+						"status": "PUBLISHED",
+						"metadata": {},
+						"outputSchema": null,
+						"files": [
+							{
+								"name": "userPrompt",
+								"content": "Hi {{name}} {{>maybe}}",
+								"isEntrypoint": true,
+								"inputSchema": {"type": "object"},
+								"schemaWarnings": [
+									{"path": "$.partials.maybe", "message": "missing partial"}
+								]
+							}
+						]
+					}
+				}
+			}
+		}`
+		w.Write([]byte(resp))
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, "test-key", "", false)
+	pd, err := c.FetchPromptVersion(context.Background(), "warned", "1.0.0", nil)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(pd.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(pd.Files))
+	}
+	warns := pd.Files[0].SchemaWarnings
+	if len(warns) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(warns))
+	}
+	if warns[0].Path != "$.partials.maybe" || warns[0].Message != "missing partial" {
+		t.Errorf("unexpected warning: %+v", warns[0])
 	}
 }
 
@@ -149,8 +242,6 @@ func TestFetchPromptVersion_WithOutputSchema(t *testing.T) {
 						"version": "2.0.0",
 						"status": "PUBLISHED",
 						"metadata": {"model": "gpt-4o"},
-						"userPromptInputSchema": null,
-						"systemPromptInputSchema": null,
 						"outputSchema": {
 							"type": "object",
 							"properties": {
@@ -160,7 +251,13 @@ func TestFetchPromptVersion_WithOutputSchema(t *testing.T) {
 							"required": ["sentiment", "confidence"]
 						},
 						"files": [
-							{"name": "userPrompt", "content": "Analyze: {{text}}"}
+							{
+								"name": "userPrompt",
+								"content": "Analyze: {{text}}",
+								"isEntrypoint": true,
+								"inputSchema": null,
+								"schemaWarnings": []
+							}
 						]
 					}
 				}

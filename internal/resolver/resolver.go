@@ -19,7 +19,6 @@ type Options struct {
 	LockfilePath string
 	CacheDir     string
 	Frozen       bool
-	Draft        bool
 	Verbose      bool
 	ForceAll     bool     // update all prompts (sufleur update with no args)
 	UpdateOnly   []string // update specific prompts (sufleur update <name>)
@@ -219,9 +218,13 @@ func (r *Resolver) resolvePrompt(
 		}, nil
 	}
 
-	// Fetch from API
+	// Fetch from API. The "draft" sentinel constraint requires status=DRAFT;
+	// every other constraint resolves against published versions only.
 	var status *fetcher.PromptVersionStatus
-	if !r.opts.Draft {
+	if constraint == "draft" {
+		s := fetcher.StatusDraft
+		status = &s
+	} else {
 		s := fetcher.StatusPublished
 		status = &s
 	}
