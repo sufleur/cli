@@ -13,7 +13,7 @@ import (
 )
 
 // DefaultEndpoint is the production Sufleur API endpoint.
-const DefaultEndpoint = "https://api.getmanifest.xyz/graphql"
+const DefaultEndpoint = "https://api.sufleur.com/graphql"
 
 // SufleurConfig represents the sufleur.yaml configuration file.
 type SufleurConfig struct {
