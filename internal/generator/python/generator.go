@@ -34,27 +34,32 @@ type typedDictClass struct {
 	Fields []typedDictField
 }
 
+// entrypointData describes a single render target within a prompt.
+// Name is the runtime key (file name); InputTypeName is the TypedDict class name
+// (empty when the entrypoint has no input schema).
+type entrypointData struct {
+	Name          string
+	Template      string
+	HasInput      bool
+	InputTypeName string
+}
+
 // promptTemplateData is the data passed to the Go text/template.
 type promptTemplateData struct {
-	Name                 string
-	PascalName           string
-	Description          string
-	Version              string
-	Status               string
-	Metadata             map[string]interface{}
-	MetadataTypeName     string
-	UserPromptTemplate   string
-	SystemPromptTemplate string
-	Partials             []partialData
-	HasUserPromptInput   bool
-	HasSystemPromptInput bool
-	UserInputTypeName    string
-	SystemInputTypeName  string
-	TypedDicts           []typedDictClass
-	HasOutputSchema      bool
-	OutputPydanticModel  string
-	OutputClassName      string
-	OutputSchemaRaw      string
+	Name                string
+	PascalName          string
+	Description         string
+	Version             string
+	Status              string
+	Metadata            map[string]interface{}
+	MetadataTypeName    string
+	Entrypoints         []entrypointData
+	Partials            []partialData
+	TypedDicts          []typedDictClass
+	HasOutputSchema     bool
+	OutputPydanticModel string
+	OutputClassName     string
+	OutputSchemaRaw     string
 }
 
 type partialData struct {
@@ -123,37 +128,38 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 			Metadata:    extractMetadataValues(p.Metadata),
 		}
 
-		// Classify files — resolve directives before escaping
+		// Classify files by IsEntrypoint; resolve directives before escaping.
 		for _, f := range p.Files {
 			content := generator.ResolveDirectives(f.Content, p)
-			switch f.Name {
-			case "userPrompt":
-				td.UserPromptTemplate = escapeForPythonString(content)
-			case "systemPrompt":
-				td.SystemPromptTemplate = escapeForPythonString(content)
-			default:
+			escaped := escapeForPythonString(content)
+			if f.IsEntrypoint {
+				ep := entrypointData{
+					Name:     f.Name,
+					Template: escaped,
+				}
+				if f.InputSchema != nil {
+					var classes []typedDictClass
+					typeName := collectTypedDicts(f.InputSchema, td.PascalName+"_"+toPascalCase(f.Name)+"Input", &classes, true)
+					ep.HasInput = true
+					ep.InputTypeName = typeName
+					td.TypedDicts = append(td.TypedDicts, classes...)
+				}
+				td.Entrypoints = append(td.Entrypoints, ep)
+			} else {
 				td.Partials = append(td.Partials, partialData{
 					Name:    f.Name,
-					Content: escapeForPythonString(content),
+					Content: escaped,
 				})
 			}
 		}
 
-		// Convert schemas to Python TypedDicts
-		if p.UserPromptInputSchema != nil {
-			var classes []typedDictClass
-			typeName := collectTypedDicts(p.UserPromptInputSchema, td.PascalName+"_UserPromptInput", &classes, true)
-			td.UserInputTypeName = typeName
-			td.HasUserPromptInput = true
-			td.TypedDicts = append(td.TypedDicts, classes...)
-		}
-		if p.SystemPromptInputSchema != nil {
-			var classes []typedDictClass
-			typeName := collectTypedDicts(p.SystemPromptInputSchema, td.PascalName+"_SystemPromptInput", &classes, true)
-			td.SystemInputTypeName = typeName
-			td.HasSystemPromptInput = true
-			td.TypedDicts = append(td.TypedDicts, classes...)
-		}
+		// Sort entrypoints and partials for deterministic output.
+		sort.Slice(td.Entrypoints, func(i, j int) bool {
+			return td.Entrypoints[i].Name < td.Entrypoints[j].Name
+		})
+		sort.Slice(td.Partials, func(i, j int) bool {
+			return td.Partials[i].Name < td.Partials[j].Name
+		})
 
 		// Output schema → Pydantic + raw JSON
 		if p.OutputSchema != nil {
@@ -191,24 +197,33 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 	}
 }
 
-// collectTypedDicts recursively walks a schema and emits TypedDict classes.
-// It returns the Python type string for this schema node.
+// collectTypedDicts recursively walks a JSON Schema and emits TypedDict classes.
+// It returns the Python type string for this schema node. The backend serves
+// standard JSON Schema (type/properties/items), so we read `type` here.
 func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes *[]typedDictClass, isTopLevel bool) string {
-	kind, _ := schema["kind"].(string)
+	t, _ := schema["type"].(string)
 
-	switch kind {
-	case "primitive":
-		return primitiveToPython(schema)
+	switch t {
+	case "string":
+		return "str"
+	case "integer":
+		return "int"
+	case "number":
+		return "float"
+	case "boolean":
+		return "bool"
+	case "null":
+		return "None"
 	case "array":
-		elementType, ok := schema["elementType"].(map[string]interface{})
+		items, ok := schema["items"].(map[string]interface{})
 		if !ok {
 			return "list[Any]"
 		}
-		inner := collectTypedDicts(elementType, namePrefix, classes, false)
+		inner := collectTypedDicts(items, namePrefix, classes, false)
 		return "list[" + inner + "]"
 	case "object":
 		props, ok := schema["properties"].(map[string]interface{})
-		if !ok {
+		if !ok || len(props) == 0 {
 			return "dict[str, Any]"
 		}
 
@@ -249,25 +264,9 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 		}
 		*classes = append(*classes, cls)
 		return className
-	default:
-		return "Any"
 	}
-}
-
-func primitiveToPython(schema map[string]interface{}) string {
-	t, _ := schema["type"].(string)
-	switch t {
-	case "string":
-		return "str"
-	case "int":
-		return "int"
-	case "float":
-		return "float"
-	case "boolean":
-		return "bool"
-	default:
-		return "Any"
-	}
+	// Empty schema or untyped property — treat as opaque.
+	return "Any"
 }
 
 // toPascalCase converts kebab-case, snake_case, or @workspace/name to PascalCase.
@@ -417,6 +416,12 @@ func pyMetadataValue(v interface{}) string {
 
 var pythonTemplate = `# ⚠️ AUTO-GENERATED by Sufleur CLI — do not edit manually
 # Generated at: {{.Timestamp}}
+#
+# Runtime peer dependencies (install in your project):
+#   pip install chevron
+{{- if .AnyHasOutput}}
+#   pip install pydantic
+{{- end}}
 
 from __future__ import annotations
 
@@ -476,8 +481,9 @@ PromptName = Literal[{{range $i, $p := .Prompts}}{{if $i}}, {{end}}"{{$p.Name}}"
 _templates: dict[str, dict[str, str]] = {
 {{- range .Prompts}}
     "{{.Name}}": {
-        "user_prompt": "{{.UserPromptTemplate}}",
-        "system_prompt": "{{.SystemPromptTemplate}}",
+        {{- range .Entrypoints}}
+        "{{.Name}}": "{{.Template}}",
+        {{- end}}
     },
 {{- end}}
 }
@@ -545,30 +551,15 @@ class _{{.PascalName}}Result:
         self._templates = templates
         self._partials = partials
         self.metadata = metadata
+    {{- range .Entrypoints}}
 
-    {{- if .HasUserPromptInput}}
-
-    def user_prompt(self, input: {{.UserInputTypeName}}) -> PromptOutput:
-        """Render the user prompt template."""
-        return {"prompt": chevron.render(self._templates["user_prompt"], input, partials_dict=self._partials)}
-    {{- else}}
-
-    def user_prompt(self) -> PromptOutput:
-        """Render the user prompt template."""
-        return {"prompt": chevron.render(self._templates["user_prompt"], {}, partials_dict=self._partials)}
+    @overload
+    def render(self, entrypoint: Literal["{{.Name}}"]{{if .HasInput}}, input: {{.InputTypeName}}{{end}}) -> PromptOutput: ...
     {{- end}}
 
-    {{- if .HasSystemPromptInput}}
-
-    def system_prompt(self, input: {{.SystemInputTypeName}}) -> PromptOutput:
-        """Render the system prompt template."""
-        return {"prompt": chevron.render(self._templates["system_prompt"], input, partials_dict=self._partials)}
-    {{- else}}
-
-    def system_prompt(self) -> PromptOutput:
-        """Render the system prompt template."""
-        return {"prompt": chevron.render(self._templates["system_prompt"], {}, partials_dict=self._partials)}
-    {{- end}}
+    def render(self, entrypoint: str, input: Any = None) -> PromptOutput:
+        """Render the named entrypoint template with the given input."""
+        return {"prompt": chevron.render(self._templates[entrypoint], input or {}, partials_dict=self._partials)}
     {{- if .HasOutputSchema}}
 
     def parse_output(self, raw: str) -> _{{.PascalName}}ParseSuccess | ParseFailure:
@@ -596,7 +587,7 @@ def get_prompt(prompt_name: Literal["{{.Name}}"]) -> _{{.PascalName}}Result: ...
 def get_prompt(prompt_name: PromptName) -> Any:
     """Get a type-safe prompt by name.
 
-    Returns a result object with user_prompt() and system_prompt() methods.
+    Returns a result object with a ` + "`render(entrypoint, input)`" + ` method.
     """
     if prompt_name in _draft_prompts:
         warnings.warn(
@@ -612,11 +603,8 @@ def get_prompt(prompt_name: PromptName) -> Any:
         def __init__(self) -> None:
             self.metadata = metadata
 
-        def user_prompt(self, input: Any = None) -> PromptOutput:
-            return {"prompt": chevron.render(templates["user_prompt"], input or {}, partials_dict=partials)}
-
-        def system_prompt(self, input: Any = None) -> PromptOutput:
-            return {"prompt": chevron.render(templates["system_prompt"], input or {}, partials_dict=partials)}
+        def render(self, entrypoint: str, input: Any = None) -> PromptOutput:
+            return {"prompt": chevron.render(templates[entrypoint], input or {}, partials_dict=partials)}
 {{- if .AnyHasOutput}}
 
         def parse_output(self, raw: str) -> dict[str, Any]:

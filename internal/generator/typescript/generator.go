@@ -20,24 +20,29 @@ func init() {
 // Generator produces TypeScript code from prompt data.
 type Generator struct{}
 
+// entrypointData describes a single render target within a prompt.
+// PascalEntry is used to form the input interface name; Name is the runtime key.
+type entrypointData struct {
+	Name        string // file name as-is, e.g. "userPrompt", "my-file"
+	PascalEntry string // PascalCase for use in TS identifiers
+	Template    string // escaped template literal body
+	HasInput    bool
+	InputType   string // TS type literal, "" when HasInput is false
+}
+
 // promptTemplateData is the data passed to the Go text/template.
 type promptTemplateData struct {
-	Name                   string
-	PascalName             string
-	Description            string
-	Version                string
-	Status                 string
-	Metadata               map[string]interface{}
-	UserPromptTemplate     string
-	SystemPromptTemplate   string
-	Partials               []partialData
-	UserPromptInputType    string
-	SystemPromptInputType  string
-	HasUserPromptInput     bool
-	HasSystemPromptInput   bool
-	HasOutputSchema        bool
-	OutputSchemaZod        string
-	OutputSchemaRaw        string
+	Name            string
+	PascalName      string
+	Description     string
+	Version         string
+	Status          string
+	Metadata        map[string]interface{}
+	Entrypoints     []entrypointData
+	Partials        []partialData
+	HasOutputSchema bool
+	OutputSchemaZod string
+	OutputSchemaRaw string
 }
 
 type partialData struct {
@@ -106,31 +111,36 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 			Metadata:    extractMetadataValues(p.Metadata),
 		}
 
-		// Classify files — resolve directives before escaping
+		// Classify files by IsEntrypoint; resolve directives before escaping.
 		for _, f := range p.Files {
 			content := generator.ResolveDirectives(f.Content, p)
-			switch f.Name {
-			case "userPrompt":
-				td.UserPromptTemplate = escapeForTSTemplateLiteral(content)
-			case "systemPrompt":
-				td.SystemPromptTemplate = escapeForTSTemplateLiteral(content)
-			default:
+			escaped := escapeForTSTemplateLiteral(content)
+			if f.IsEntrypoint {
+				ep := entrypointData{
+					Name:        f.Name,
+					PascalEntry: toPascalCase(f.Name),
+					Template:    escaped,
+				}
+				if f.InputSchema != nil {
+					ep.HasInput = true
+					ep.InputType = schemaToTSType(f.InputSchema, 0)
+				}
+				td.Entrypoints = append(td.Entrypoints, ep)
+			} else {
 				td.Partials = append(td.Partials, partialData{
 					Name:    f.Name,
-					Content: escapeForTSTemplateLiteral(content),
+					Content: escaped,
 				})
 			}
 		}
 
-		// Convert schemas to TypeScript types
-		if p.UserPromptInputSchema != nil {
-			td.UserPromptInputType = schemaToTSType(p.UserPromptInputSchema, 0)
-			td.HasUserPromptInput = true
-		}
-		if p.SystemPromptInputSchema != nil {
-			td.SystemPromptInputType = schemaToTSType(p.SystemPromptInputSchema, 0)
-			td.HasSystemPromptInput = true
-		}
+		// Sort entrypoints and partials for deterministic output.
+		sort.Slice(td.Entrypoints, func(i, j int) bool {
+			return td.Entrypoints[i].Name < td.Entrypoints[j].Name
+		})
+		sort.Slice(td.Partials, func(i, j int) bool {
+			return td.Partials[i].Name < td.Partials[j].Name
+		})
 
 		// Output schema → Zod + raw JSON
 		if p.OutputSchema != nil {
@@ -206,39 +216,32 @@ func extractMetadataValues(m map[string]interface{}) map[string]interface{} {
 	return result
 }
 
-// schemaToTSType converts a schema node to a TypeScript type string.
+// schemaToTSType converts a JSON Schema node to a TypeScript type string.
+// The backend serves standard JSON Schema for both input and output schemas
+// (type/properties/items/required), so we read `type` here.
 func schemaToTSType(schema map[string]interface{}, indent int) string {
-	kind, _ := schema["kind"].(string)
-
-	switch kind {
-	case "primitive":
-		return primitiveToTS(schema)
-	case "object":
-		return objectToTS(schema, indent)
-	case "array":
-		return arrayToTS(schema, indent)
-	default:
-		return "unknown"
-	}
-}
-
-func primitiveToTS(schema map[string]interface{}) string {
 	t, _ := schema["type"].(string)
 	switch t {
 	case "string":
 		return "string"
-	case "int", "float":
+	case "integer", "number":
 		return "number"
 	case "boolean":
 		return "boolean"
-	default:
-		return "unknown"
+	case "null":
+		return "null"
+	case "array":
+		return arrayToTS(schema, indent)
+	case "object":
+		return objectToTS(schema, indent)
 	}
+	// Empty schema or untyped property — treat as opaque.
+	return "unknown"
 }
 
 func objectToTS(schema map[string]interface{}, indent int) string {
 	props, ok := schema["properties"].(map[string]interface{})
-	if !ok {
+	if !ok || len(props) == 0 {
 		return "Record<string, unknown>"
 	}
 
@@ -280,11 +283,11 @@ func objectToTS(schema map[string]interface{}, indent int) string {
 }
 
 func arrayToTS(schema map[string]interface{}, indent int) string {
-	elementType, ok := schema["elementType"].(map[string]interface{})
+	items, ok := schema["items"].(map[string]interface{})
 	if !ok {
 		return "unknown[]"
 	}
-	ts := schemaToTSType(elementType, indent)
+	ts := schemaToTSType(items, indent)
 	// Wrap complex types in parens for array syntax
 	if strings.Contains(ts, "\n") {
 		return "(" + ts + ")[]"
@@ -316,6 +319,13 @@ func tsMetadataValue(v interface{}) string {
 
 var indexTemplate = `// ⚠️ AUTO-GENERATED by Sufleur CLI — do not edit manually
 // Generated at: {{.Timestamp}}
+//
+// Runtime peer dependencies (install in your project):
+//   npm i mustache
+//   npm i -D @types/mustache
+{{- if .AnyHasOutput}}
+//   npm i zod
+{{- end}}
 
 import Mustache from 'mustache';
 {{- if .AnyHasOutput}}
@@ -327,13 +337,12 @@ import { z } from 'zod';
 interface PromptOutput {
   prompt: string;
 }
-{{range .Prompts}}
-{{- if .HasUserPromptInput}}
-export interface {{.PascalName}}_UserPromptInput {{.UserPromptInputType}}
+{{range $p := .Prompts}}
+{{- range $p.Entrypoints}}
+{{- if .HasInput}}
+export type {{$p.PascalName}}_{{.PascalEntry}}Input = {{.InputType}};
 {{end}}
-{{- if .HasSystemPromptInput}}
-export interface {{.PascalName}}_SystemPromptInput {{.SystemPromptInputType}}
-{{end}}
+{{- end}}
 {{- end}}
 {{- if .AnyHasOutput}}
 // ─── Output Schemas ──────────────────────────────────────────────────────────
@@ -357,20 +366,18 @@ export interface OutputMapping {
 
 export type PromptName ={{range .Prompts}} | '{{.Name}}'{{end}};
 
-// ─── Input Mapping ────────────────────────────────────────────────────────────
+// ─── Entrypoint Mapping ───────────────────────────────────────────────────────
+//
+// For each prompt, lists its entrypoint files and the input type required to
+// render each one. Drives type narrowing for ` + "`render(entrypoint, input)`" + `.
+// ` + "`void`" + ` means the entrypoint has no input schema and is callable with no
+// arguments (other than the entrypoint name).
 
-export interface InputMapping {
-{{- range .Prompts}}
-  '{{.Name}}': {
-    {{- if .HasUserPromptInput}}
-    userPromptInput: {{.PascalName}}_UserPromptInput;
-    {{- else}}
-    userPromptInput: void;
-    {{- end}}
-    {{- if .HasSystemPromptInput}}
-    systemPromptInput: {{.PascalName}}_SystemPromptInput;
-    {{- else}}
-    systemPromptInput: void;
+export interface EntrypointMapping {
+{{- range $p := .Prompts}}
+  '{{$p.Name}}': {
+    {{- range $p.Entrypoints}}
+    '{{.Name}}': {{if .HasInput}}{{$p.PascalName}}_{{.PascalEntry}}Input{{else}}void{{end}};
     {{- end}}
   };
 {{- end}}
@@ -378,18 +385,19 @@ export interface InputMapping {
 
 // ─── Templates ────────────────────────────────────────────────────────────────
 
-const _templates: Record<string, { userPrompt: string; systemPrompt: string }> = {
+const _templates: Record<PromptName, Record<string, string>> = {
 {{- range .Prompts}}
   '{{.Name}}': {
-    userPrompt: ` + "`" + `{{.UserPromptTemplate}}` + "`" + `,
-    systemPrompt: ` + "`" + `{{.SystemPromptTemplate}}` + "`" + `,
+    {{- range .Entrypoints}}
+    '{{.Name}}': ` + "`" + `{{.Template}}` + "`" + `,
+    {{- end}}
   },
 {{- end}}
 };
 
 // ─── Partials ─────────────────────────────────────────────────────────────────
 
-const _partials: Record<string, Record<string, string>> = {
+const _partials: Record<PromptName, Record<string, string>> = {
 {{- range .Prompts}}
   '{{.Name}}': {
     {{- range .Partials}}
@@ -439,12 +447,10 @@ const _draftPrompts: Set<string> = new Set([
 {{- if .AnyHasOutput}}
 
 type PromptResult<N extends PromptName> = {
-  userPrompt: InputMapping[N]['userPromptInput'] extends void
-    ? () => PromptOutput
-    : (input: InputMapping[N]['userPromptInput']) => PromptOutput;
-  systemPrompt: InputMapping[N]['systemPromptInput'] extends void
-    ? () => PromptOutput
-    : (input: InputMapping[N]['systemPromptInput']) => PromptOutput;
+  render: <E extends keyof EntrypointMapping[N] & string>(
+    entrypoint: E,
+    ...input: EntrypointMapping[N][E] extends void ? [] : [EntrypointMapping[N][E]]
+  ) => PromptOutput;
   metadata: (typeof _metadata)[N];
 } & (OutputMapping[N] extends never ? {} : {
   parseOutput(raw: string): ParseResult<OutputMapping[N]>;
@@ -452,12 +458,10 @@ type PromptResult<N extends PromptName> = {
 {{- else}}
 
 interface PromptResult<N extends PromptName> {
-  userPrompt: InputMapping[N]['userPromptInput'] extends void
-    ? () => PromptOutput
-    : (input: InputMapping[N]['userPromptInput']) => PromptOutput;
-  systemPrompt: InputMapping[N]['systemPromptInput'] extends void
-    ? () => PromptOutput
-    : (input: InputMapping[N]['systemPromptInput']) => PromptOutput;
+  render: <E extends keyof EntrypointMapping[N] & string>(
+    entrypoint: E,
+    ...input: EntrypointMapping[N][E] extends void ? [] : [EntrypointMapping[N][E]]
+  ) => PromptOutput;
   metadata: (typeof _metadata)[N];
 }
 {{- end}}
@@ -472,17 +476,15 @@ interface PromptResult<N extends PromptName> {
 {{- if .AnyHasOutput}}
 export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> {
   if (_draftPrompts.has(promptName)) {
-    console.warn(` + "`" + `[sufleur] Warning: prompt "\\${promptName}" is a draft version` + "`" + `);
+    console.warn(` + "`" + `[sufleur] Warning: prompt "\${promptName}" is a draft version` + "`" + `);
   }
 
   const templates = _templates[promptName];
   const partials = _partials[promptName] || {};
 
   const result: any = {
-    userPrompt: (input?: any) =>
-      ({ prompt: Mustache.render(templates.userPrompt, input ?? {}, partials) }),
-    systemPrompt: (input?: any) =>
-      ({ prompt: Mustache.render(templates.systemPrompt, input ?? {}, partials) }),
+    render: (entrypoint: string, input?: any) =>
+      ({ prompt: Mustache.render(templates[entrypoint], input ?? {}, partials) }),
     metadata: _metadata[promptName],
   };
 
@@ -510,17 +512,15 @@ export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> 
 {{- else}}
 export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> {
   if (_draftPrompts.has(promptName)) {
-    console.warn(` + "`" + `[sufleur] Warning: prompt "\\${promptName}" is a draft version` + "`" + `);
+    console.warn(` + "`" + `[sufleur] Warning: prompt "\${promptName}" is a draft version` + "`" + `);
   }
 
   const templates = _templates[promptName];
   const partials = _partials[promptName] || {};
 
   return {
-    userPrompt: ((input?: any) =>
-      ({ prompt: Mustache.render(templates.userPrompt, input ?? {}, partials) })) as any,
-    systemPrompt: ((input?: any) =>
-      ({ prompt: Mustache.render(templates.systemPrompt, input ?? {}, partials) })) as any,
+    render: ((entrypoint: string, input?: any) =>
+      ({ prompt: Mustache.render(templates[entrypoint], input ?? {}, partials) })) as any,
     metadata: _metadata[promptName],
   };
 }

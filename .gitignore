@@ -1,5 +1,9 @@
 # Build output
 dist/
+bin/
+
+# Local playground
+playground/
 
 # Environment
 .env

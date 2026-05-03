@@ -15,7 +15,7 @@ type Client interface {
 	FetchPromptVersion(ctx context.Context, promptName, constraint string, status *PromptVersionStatus) (*generator.PromptData, error)
 }
 
-// JSON represents a JSON scalar from the GraphQL schema.
+// JSON represents a JSON object scalar from the GraphQL schema.
 type JSON map[string]interface{}
 
 // UnmarshalJSON implements json.Unmarshaler.
@@ -33,6 +33,20 @@ func (j *JSON) UnmarshalJSON(data []byte) error {
 
 // GetGraphQLType returns the GraphQL type name for this scalar.
 func (j JSON) GetGraphQLType() string {
+	return "JSON"
+}
+
+// schemaWarning is a single warning entry returned by the backend per entrypoint.
+type schemaWarning struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
+// SchemaWarningList is a JSON-array scalar returned for PromptFile.schemaWarnings.
+type SchemaWarningList []schemaWarning
+
+// GetGraphQLType returns the GraphQL type name for this scalar.
+func (s SchemaWarningList) GetGraphQLType() string {
 	return "JSON"
 }
 
@@ -68,23 +82,29 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("prompts not found: %s", strings.Join(e.MissingPrompts, ", "))
 }
 
+// fetchPromptVersionResult is the shape of the resolved version sub-selection.
+// It is referenced via pointer in fetchPromptVersionQuery so a null version
+// (no match for the constraint) decodes to nil rather than zero-value confusion.
+type fetchPromptVersionResult struct {
+	Version      string
+	Status       string
+	Metadata     JSON `scalar:"true"`
+	OutputSchema JSON `scalar:"true"`
+	Files        []promptFileResponse
+}
+
 // fetchPromptVersionQuery is the struct-based query for the hasura GraphQL client.
 type fetchPromptVersionQuery struct {
 	Prompt struct {
 		Description string
-		Version     struct {
-			Version                 string
-			Status                  string
-			Metadata                JSON `scalar:"true"`
-			UserPromptInputSchema   JSON `scalar:"true"`
-			SystemPromptInputSchema JSON `scalar:"true"`
-			OutputSchema            JSON `scalar:"true"`
-			Files                   []promptFileResponse
-		} `graphql:"version(constraint: $constraint, status: $status)"`
+		Version     *fetchPromptVersionResult `graphql:"version(constraint: $constraint, status: $status)"`
 	} `graphql:"prompt(promptName: $promptName)"`
 }
 
 type promptFileResponse struct {
-	Name    string
-	Content string
+	Name           string
+	Content        string
+	IsEntrypoint   bool
+	InputSchema    JSON              `scalar:"true"`
+	SchemaWarnings SchemaWarningList `scalar:"true"`
 }

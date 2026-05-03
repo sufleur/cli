@@ -24,6 +24,33 @@ func generateAndRead(t *testing.T, prompts []generator.PromptData) string {
 }
 
 func TestSinglePromptFullSchema(t *testing.T) {
+	userInputSchema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"user": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{
+						"type":        "string",
+						"description": "User's name",
+					},
+					"age": map[string]interface{}{
+						"type":        "integer",
+						"description": "User's age in years",
+					},
+				},
+			},
+		},
+	}
+	systemInputSchema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"tone": map[string]interface{}{
+				"type": "string",
+			},
+		},
+	}
+
 	prompts := []generator.PromptData{
 		{
 			Ref:         "@wtomas/email-subject-generator",
@@ -35,45 +62,26 @@ func TestSinglePromptFullSchema(t *testing.T) {
 				"model":       map[string]interface{}{"type": "string", "value": "gpt-4o"},
 				"temperature": map[string]interface{}{"type": "integer", "value": float64(0)},
 			},
-			UserPromptInputSchema: map[string]interface{}{
-				"kind": "object",
-				"properties": map[string]interface{}{
-					"user": map[string]interface{}{
-						"kind": "object",
-						"properties": map[string]interface{}{
-							"name": map[string]interface{}{
-								"kind":        "primitive",
-								"type":        "string",
-								"description": "User's name",
-							},
-							"age": map[string]interface{}{
-								"kind":        "primitive",
-								"type":        "int",
-								"description": "User's age in years",
-							},
-						},
-					},
-				},
-			},
-			SystemPromptInputSchema: map[string]interface{}{
-				"kind": "object",
-				"properties": map[string]interface{}{
-					"tone": map[string]interface{}{
-						"kind": "primitive",
-						"type": "string",
-					},
-				},
-			},
 			Files: []generator.PromptFile{
-				{Name: "userPrompt", Content: "Hello {{user.name}}, you are {{user.age}} years old."},
-				{Name: "systemPrompt", Content: "You are a helpful assistant with {{tone}} tone."},
+				{
+					Name:         "userPrompt",
+					Content:      "Hello {{user.name}}, you are {{user.age}} years old.",
+					IsEntrypoint: true,
+					InputSchema:  userInputSchema,
+				},
+				{
+					Name:         "systemPrompt",
+					Content:      "You are a helpful assistant with {{tone}} tone.",
+					IsEntrypoint: true,
+					InputSchema:  systemInputSchema,
+				},
 			},
 		},
 	}
 
 	output := generateAndRead(t, prompts)
 
-	// Check TypedDict classes use PascalCase from full ref
+	// TypedDict classes use PascalCase from full ref + entrypoint name
 	assertContains(t, output, "class WtomasEmailSubjectGenerator_UserPromptInput(TypedDict):")
 	assertContains(t, output, "class WtomasEmailSubjectGenerator_SystemPromptInput(TypedDict):")
 	// Nested user object should be private (prefixed with _)
@@ -82,22 +90,26 @@ func TestSinglePromptFullSchema(t *testing.T) {
 	assertContains(t, output, "age: int")
 	assertContains(t, output, "tone: str")
 
-	// Check PromptName literal uses full ref
+	// PromptName literal uses full ref
 	assertContains(t, output, "\"@wtomas/email-subject-generator\"")
 
-	// Check templates
+	// Templates contain raw Mustache content under entrypoint keys
 	assertContains(t, output, "Hello {{user.name}}, you are {{user.age}} years old.")
 	assertContains(t, output, "You are a helpful assistant with {{tone}} tone.")
 
-	// Check metadata
+	// Metadata
 	assertContains(t, output, "\"model\": \"gpt-4o\"")
 	assertContains(t, output, "\"temperature\": 0")
 	assertContains(t, output, "\"version\": \"1.4.2\"")
 
-	// Check get_prompt function exists
+	// render overloads per entrypoint
+	assertContains(t, output, "def render(self, entrypoint: Literal[\"userPrompt\"], input: WtomasEmailSubjectGenerator_UserPromptInput) -> PromptOutput:")
+	assertContains(t, output, "def render(self, entrypoint: Literal[\"systemPrompt\"], input: WtomasEmailSubjectGenerator_SystemPromptInput) -> PromptOutput:")
+
+	// get_prompt entry point
 	assertContains(t, output, "def get_prompt(prompt_name: PromptName)")
 
-	// Check imports
+	// Imports
 	assertContains(t, output, "import chevron")
 	assertContains(t, output, "from typing import Any, Literal, TypedDict, overload")
 }
@@ -109,14 +121,14 @@ func TestMultiplePrompts(t *testing.T) {
 			Name:    "beta-prompt",
 			Version: "2.0.0",
 			Status:  "PUBLISHED",
-			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "Hello"}},
+			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "Hello", IsEntrypoint: true}},
 		},
 		{
 			Ref:     "@acme/alpha-prompt",
 			Name:    "alpha-prompt",
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
-			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "World"}},
+			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "World", IsEntrypoint: true}},
 		},
 	}
 
@@ -145,31 +157,121 @@ func TestPromptWithNoSystemPrompt(t *testing.T) {
 			Name:    "simple-prompt",
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
-			UserPromptInputSchema: map[string]interface{}{
-				"kind": "object",
-				"properties": map[string]interface{}{
-					"name": map[string]interface{}{
-						"kind": "primitive",
-						"type": "string",
+			Files: []generator.PromptFile{
+				{
+					Name:         "userPrompt",
+					Content:      "Hello {{name}}",
+					IsEntrypoint: true,
+					InputSchema: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{
+								"type": "string",
+							},
+						},
 					},
 				},
-			},
-			Files: []generator.PromptFile{
-				{Name: "userPrompt", Content: "Hello {{name}}"},
 			},
 		},
 	}
 
 	output := generateAndRead(t, prompts)
 
-	// Should have user prompt input type but not system
+	// User prompt input type emitted
 	assertContains(t, output, "class TestSimplePrompt_UserPromptInput(TypedDict):")
+	// No system prompt entrypoint, so no input type for it
 	assertNotContains(t, output, "TestSimplePrompt_SystemPromptInput")
 
-	// System prompt method should have no input param
-	assertContains(t, output, "def system_prompt(self) -> PromptOutput:")
-	// User prompt method should have input param
-	assertContains(t, output, "def user_prompt(self, input: TestSimplePrompt_UserPromptInput) -> PromptOutput:")
+	// render overload only for userPrompt
+	assertContains(t, output, "def render(self, entrypoint: Literal[\"userPrompt\"], input: TestSimplePrompt_UserPromptInput) -> PromptOutput:")
+	assertNotContains(t, output, "Literal[\"systemPrompt\"]")
+}
+
+func TestEntrypointWithoutInput(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/no-input",
+			Name:    "no-input",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			Files: []generator.PromptFile{
+				{Name: "userPrompt", Content: "Hi there", IsEntrypoint: true},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	// No input type
+	assertNotContains(t, output, "TestNoInput_UserPromptInput")
+	// Overload has no input parameter
+	assertContains(t, output, "def render(self, entrypoint: Literal[\"userPrompt\"]) -> PromptOutput:")
+}
+
+func TestCustomEntrypointName(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/multi-entry",
+			Name:    "multi-entry",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			Files: []generator.PromptFile{
+				{
+					Name:         "assistantPrompt",
+					Content:      "Assist with {{topic}}",
+					IsEntrypoint: true,
+					InputSchema: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"topic": map[string]interface{}{"type": "string"},
+						},
+					},
+				},
+				{
+					Name:         "toolCallPrompt",
+					Content:      "Call tool",
+					IsEntrypoint: true,
+				},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	// Custom entrypoint produces input TypedDict named after the entrypoint
+	assertContains(t, output, "class TestMultiEntry_AssistantPromptInput(TypedDict):")
+	assertContains(t, output, "topic: str")
+
+	// Both render overloads present
+	assertContains(t, output, "def render(self, entrypoint: Literal[\"assistantPrompt\"], input: TestMultiEntry_AssistantPromptInput) -> PromptOutput:")
+	assertContains(t, output, "def render(self, entrypoint: Literal[\"toolCallPrompt\"]) -> PromptOutput:")
+
+	// Both keys present in templates
+	assertContains(t, output, `"assistantPrompt": "Assist with {{topic}}"`)
+	assertContains(t, output, `"toolCallPrompt": "Call tool"`)
+}
+
+func TestPartialsAreNonEntrypoints(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/with-partial",
+			Name:    "with-partial",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			Files: []generator.PromptFile{
+				{Name: "userPrompt", Content: "Use {{>greeting}}", IsEntrypoint: true},
+				{Name: "greeting", Content: "Hello!"},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	// Partial appears in _partials, not _templates
+	templatesSection := extractSection(output, "_templates: dict[str, dict[str, str]]", "}")
+	assertNotContains(t, templatesSection, "\"greeting\":")
+	partialsSection := extractSection(output, "_partials: dict[str, dict[str, str]]", "}")
+	assertContains(t, partialsSection, `"greeting": "Hello!"`)
 }
 
 func TestDraftPrompt(t *testing.T) {
@@ -177,16 +279,15 @@ func TestDraftPrompt(t *testing.T) {
 		{
 			Ref:     "@test/draft-prompt",
 			Name:    "draft-prompt",
-			Version: "0.1.0",
+			Version: "draft",
 			Status:  "DRAFT",
-			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "Draft content"}},
+			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "Draft content", IsEntrypoint: true}},
 		},
 	}
 
 	output := generateAndRead(t, prompts)
 
 	assertContains(t, output, "_draft_prompts")
-	// The draft prompt should appear in the set
 	draftSection := extractSection(output, "_draft_prompts", "}")
 	assertContains(t, draftSection, "\"@test/draft-prompt\"")
 }
@@ -198,35 +299,35 @@ func TestSchemaTypeMappings(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "string primitive",
-			schema:   map[string]interface{}{"kind": "primitive", "type": "string"},
+			name:     "string",
+			schema:   map[string]interface{}{"type": "string"},
 			expected: "str",
 		},
 		{
-			name:     "int primitive",
-			schema:   map[string]interface{}{"kind": "primitive", "type": "int"},
+			name:     "integer",
+			schema:   map[string]interface{}{"type": "integer"},
 			expected: "int",
 		},
 		{
-			name:     "float primitive",
-			schema:   map[string]interface{}{"kind": "primitive", "type": "float"},
+			name:     "number",
+			schema:   map[string]interface{}{"type": "number"},
 			expected: "float",
 		},
 		{
-			name:     "boolean primitive",
-			schema:   map[string]interface{}{"kind": "primitive", "type": "boolean"},
+			name:     "boolean",
+			schema:   map[string]interface{}{"type": "boolean"},
 			expected: "bool",
 		},
 		{
-			name:     "unknown primitive",
-			schema:   map[string]interface{}{"kind": "primitive", "type": "unknown"},
+			name:     "empty schema falls through to Any",
+			schema:   map[string]interface{}{},
 			expected: "Any",
 		},
 		{
 			name: "array of strings",
 			schema: map[string]interface{}{
-				"kind":        "array",
-				"elementType": map[string]interface{}{"kind": "primitive", "type": "string"},
+				"type":  "array",
+				"items": map[string]interface{}{"type": "string"},
 			},
 			expected: "list[str]",
 		},
@@ -297,17 +398,22 @@ func TestFieldDescriptions(t *testing.T) {
 			Name:    "desc-prompt",
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
-			UserPromptInputSchema: map[string]interface{}{
-				"kind": "object",
-				"properties": map[string]interface{}{
-					"name": map[string]interface{}{
-						"kind":        "primitive",
-						"type":        "string",
-						"description": "The user's full name",
+			Files: []generator.PromptFile{
+				{
+					Name:         "userPrompt",
+					Content:      "Hi {{name}}",
+					IsEntrypoint: true,
+					InputSchema: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{
+								"type":        "string",
+								"description": "The user's full name",
+							},
+						},
 					},
 				},
 			},
-			Files: []generator.PromptFile{{Name: "userPrompt", Content: "Hi {{name}}"}},
 		},
 	}
 
@@ -354,7 +460,7 @@ func TestGenerateCreatesParentDirs(t *testing.T) {
 			Name:    "test",
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
-			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "Hello"}},
+			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "Hello", IsEntrypoint: true}},
 		},
 	})
 	if err != nil {
@@ -373,13 +479,19 @@ func TestRefUsedAsKey(t *testing.T) {
 			Name:    "my-prompt",
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
-			UserPromptInputSchema: map[string]interface{}{
-				"kind": "object",
-				"properties": map[string]interface{}{
-					"name": map[string]interface{}{"kind": "primitive", "type": "string"},
+			Files: []generator.PromptFile{
+				{
+					Name:         "userPrompt",
+					Content:      "Hello {{name}}",
+					IsEntrypoint: true,
+					InputSchema: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{"type": "string"},
+						},
+					},
 				},
 			},
-			Files: []generator.PromptFile{{Name: "userPrompt", Content: "Hello {{name}}"}},
 		},
 	}
 
@@ -397,13 +509,19 @@ func TestFallbackToNameWhenNoRef(t *testing.T) {
 			Name:    "legacy-prompt",
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
-			UserPromptInputSchema: map[string]interface{}{
-				"kind": "object",
-				"properties": map[string]interface{}{
-					"name": map[string]interface{}{"kind": "primitive", "type": "string"},
+			Files: []generator.PromptFile{
+				{
+					Name:         "userPrompt",
+					Content:      "Hello {{name}}",
+					IsEntrypoint: true,
+					InputSchema: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{"type": "string"},
+						},
+					},
 				},
 			},
-			Files: []generator.PromptFile{{Name: "userPrompt", Content: "Hello {{name}}"}},
 		},
 	}
 
@@ -420,18 +538,24 @@ func TestNestedObjectTypedDict(t *testing.T) {
 			Name:    "nested",
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
-			UserPromptInputSchema: map[string]interface{}{
-				"kind": "object",
-				"properties": map[string]interface{}{
-					"outer": map[string]interface{}{
-						"kind": "object",
+			Files: []generator.PromptFile{
+				{
+					Name:         "userPrompt",
+					Content:      "{{outer.inner.value}}",
+					IsEntrypoint: true,
+					InputSchema: map[string]interface{}{
+						"type": "object",
 						"properties": map[string]interface{}{
-							"inner": map[string]interface{}{
-								"kind": "object",
+							"outer": map[string]interface{}{
+								"type": "object",
 								"properties": map[string]interface{}{
-									"value": map[string]interface{}{
-										"kind": "primitive",
-										"type": "string",
+									"inner": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"value": map[string]interface{}{
+												"type": "string",
+											},
+										},
 									},
 								},
 							},
@@ -439,7 +563,6 @@ func TestNestedObjectTypedDict(t *testing.T) {
 					},
 				},
 			},
-			Files: []generator.PromptFile{{Name: "userPrompt", Content: "{{outer.inner.value}}"}},
 		},
 	}
 
@@ -461,14 +584,14 @@ func TestOverloadSignatures(t *testing.T) {
 			Name:    "prompt-a",
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
-			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "A"}},
+			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "A", IsEntrypoint: true}},
 		},
 		{
 			Ref:     "@acme/prompt-b",
 			Name:    "prompt-b",
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
-			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "B"}},
+			Files:   []generator.PromptFile{{Name: "userPrompt", Content: "B", IsEntrypoint: true}},
 		},
 	}
 
@@ -486,23 +609,27 @@ func TestResultTypeClasses(t *testing.T) {
 			Name:    "with-input",
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
-			UserPromptInputSchema: map[string]interface{}{
-				"kind": "object",
-				"properties": map[string]interface{}{
-					"name": map[string]interface{}{"kind": "primitive", "type": "string"},
+			Files: []generator.PromptFile{
+				{
+					Name:         "userPrompt",
+					Content:      "Hello {{name}}",
+					IsEntrypoint: true,
+					InputSchema: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{"type": "string"},
+						},
+					},
 				},
 			},
-			Files: []generator.PromptFile{{Name: "userPrompt", Content: "Hello {{name}}"}},
 		},
 	}
 
 	output := generateAndRead(t, prompts)
 
-	// Result class with typed input
+	// Result class with typed render overload
 	assertContains(t, output, "class _TestWithInputResult:")
-	assertContains(t, output, "def user_prompt(self, input: TestWithInput_UserPromptInput) -> PromptOutput:")
-	// No system input — no param
-	assertContains(t, output, "def system_prompt(self) -> PromptOutput:")
+	assertContains(t, output, "def render(self, entrypoint: Literal[\"userPrompt\"], input: TestWithInput_UserPromptInput) -> PromptOutput:")
 }
 
 func TestTypedMetadata(t *testing.T) {
@@ -517,7 +644,7 @@ func TestTypedMetadata(t *testing.T) {
 				"temperature": map[string]interface{}{"type": "integer", "value": float64(0)},
 				"stream":      map[string]interface{}{"type": "boolean", "value": true},
 			},
-			Files: []generator.PromptFile{{Name: "userPrompt", Content: "Hello"}},
+			Files: []generator.PromptFile{{Name: "userPrompt", Content: "Hello", IsEntrypoint: true}},
 		},
 	}
 
@@ -602,7 +729,7 @@ func TestOutputSchema_SinglePrompt(t *testing.T) {
 				"required": []interface{}{"summary", "score"},
 			},
 			Files: []generator.PromptFile{
-				{Name: "userPrompt", Content: "Summarize this"},
+				{Name: "userPrompt", Content: "Summarize this", IsEntrypoint: true},
 			},
 		},
 	}
@@ -661,7 +788,7 @@ func TestOutputSchema_MixedPrompts(t *testing.T) {
 				"required": []interface{}{"result"},
 			},
 			Files: []generator.PromptFile{
-				{Name: "userPrompt", Content: "Do something"},
+				{Name: "userPrompt", Content: "Do something", IsEntrypoint: true},
 			},
 		},
 		{
@@ -670,7 +797,7 @@ func TestOutputSchema_MixedPrompts(t *testing.T) {
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
 			Files: []generator.PromptFile{
-				{Name: "userPrompt", Content: "Do something else"},
+				{Name: "userPrompt", Content: "Do something else", IsEntrypoint: true},
 			},
 		},
 	}
@@ -709,7 +836,7 @@ func TestOutputSchema_NoPromptHasSchema(t *testing.T) {
 			Version: "1.0.0",
 			Status:  "PUBLISHED",
 			Files: []generator.PromptFile{
-				{Name: "userPrompt", Content: "Hello world"},
+				{Name: "userPrompt", Content: "Hello world", IsEntrypoint: true},
 			},
 		},
 	}
@@ -753,7 +880,7 @@ func TestOutputSchema_NestedObject(t *testing.T) {
 				"required": []interface{}{"user"},
 			},
 			Files: []generator.PromptFile{
-				{Name: "userPrompt", Content: "Get user info"},
+				{Name: "userPrompt", Content: "Get user info", IsEntrypoint: true},
 			},
 		},
 	}
@@ -792,7 +919,7 @@ func TestOutputSchema_DirectiveResolution(t *testing.T) {
 				"required": []interface{}{"answer"},
 			},
 			Files: []generator.PromptFile{
-				{Name: "userPrompt", Content: "Respond with this schema: {{@outputSchema}}"},
+				{Name: "userPrompt", Content: "Respond with this schema: {{@outputSchema}}", IsEntrypoint: true},
 			},
 		},
 	}

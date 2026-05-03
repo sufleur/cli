@@ -22,17 +22,17 @@ func (e *IntegrityError) Error() string {
 
 // canonicalData is the serializable form with sorted files.
 type canonicalData struct {
-	Name                    string                 `json:"name"`
-	Version                 string                 `json:"version"`
-	Description             string                 `json:"description"`
-	UserPromptInputSchema   map[string]interface{} `json:"userPromptInputSchema"`
-	SystemPromptInputSchema map[string]interface{} `json:"systemPromptInputSchema"`
-	Files                   []canonicalFile        `json:"files"`
+	Name        string          `json:"name"`
+	Version     string          `json:"version"`
+	Description string          `json:"description"`
+	Files       []canonicalFile `json:"files"`
 }
 
 type canonicalFile struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
+	Name         string                 `json:"name"`
+	Content      string                 `json:"content"`
+	IsEntrypoint bool                   `json:"isEntrypoint"`
+	InputSchema  map[string]interface{} `json:"inputSchema,omitempty"`
 }
 
 // Compute returns a deterministic SHA-256 digest of the prompt data.
@@ -41,19 +41,22 @@ type canonicalFile struct {
 func Compute(pd *generator.PromptData) string {
 	files := make([]canonicalFile, len(pd.Files))
 	for i, f := range pd.Files {
-		files[i] = canonicalFile{Name: f.Name, Content: f.Content}
+		files[i] = canonicalFile{
+			Name:         f.Name,
+			Content:      f.Content,
+			IsEntrypoint: f.IsEntrypoint,
+			InputSchema:  f.InputSchema,
+		}
 	}
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].Name < files[j].Name
 	})
 
 	cd := canonicalData{
-		Name:                    pd.Name,
-		Version:                 pd.Version,
-		Description:             pd.Description,
-		UserPromptInputSchema:   pd.UserPromptInputSchema,
-		SystemPromptInputSchema: pd.SystemPromptInputSchema,
-		Files:                   files,
+		Name:        pd.Name,
+		Version:     pd.Version,
+		Description: pd.Description,
+		Files:       files,
 	}
 
 	data, _ := json.Marshal(cd) // struct is always marshalable
