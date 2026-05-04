@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/WTomas/sufleur-cli/internal/generator"
+	"github.com/sufleur/cli/internal/generator"
 )
 
 // Client defines the interface for communicating with the Sufleur GraphQL API.

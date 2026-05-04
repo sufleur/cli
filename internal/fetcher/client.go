@@ -12,7 +12,7 @@ import (
 
 	graphql "github.com/hasura/go-graphql-client"
 
-	"github.com/WTomas/sufleur-cli/internal/generator"
+	"github.com/sufleur/cli/internal/generator"
 )
 
 // debugTransport wraps an http.RoundTripper and logs request/response bodies.

@@ -1,4 +1,4 @@
-module github.com/WTomas/sufleur-cli
+module github.com/sufleur/cli
 
 go 1.23.2
 

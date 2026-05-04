@@ -7,10 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WTomas/sufleur-cli/internal/cache"
-	"github.com/WTomas/sufleur-cli/internal/config"
-	"github.com/WTomas/sufleur-cli/internal/lockfile"
-	"github.com/WTomas/sufleur-cli/internal/promptref"
+	"github.com/sufleur/cli/internal/cache"
+	"github.com/sufleur/cli/internal/config"
+	"github.com/sufleur/cli/internal/lockfile"
+	"github.com/sufleur/cli/internal/promptref"
 )
 
 var removeCmd = &cobra.Command{

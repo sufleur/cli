@@ -16,7 +16,7 @@ const PLATFORM_MAP = { linux: 'linux', darwin: 'darwin', win32: 'windows' };
 const ARCH_MAP = { x64: 'amd64', arm64: 'arm64' };
 const SUPPORTED = 'linux/x64, linux/arm64, darwin/x64, darwin/arm64, win32/x64, win32/arm64';
 
-const DEFAULT_BASE = 'https://github.com/WTomas/sufleur-cli/releases/download';
+const DEFAULT_BASE = 'https://github.com/sufleur/cli/releases/download';
 const PREFIX = '[@sufleur/cli postinstall]';
 
 function fail(msg) {

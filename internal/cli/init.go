@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WTomas/sufleur-cli/internal/config"
+	"github.com/sufleur/cli/internal/config"
 )
 
 var initCmd = &cobra.Command{
