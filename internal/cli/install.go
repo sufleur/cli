@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WTomas/sufleur-cli/internal/resolver"
+	"github.com/sufleur/cli/internal/resolver"
 )
 
 var installCmd = &cobra.Command{

@@ -9,7 +9,7 @@ builds:
   - main: ./cmd/sufleur
     binary: sufleur
     ldflags:
-      - -X github.com/WTomas/sufleur-cli/internal/cli.Version={{.Version}}
+      - -X github.com/sufleur/cli/internal/cli.Version={{.Version}}
     goos:
       - linux
       - darwin

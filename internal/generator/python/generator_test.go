@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/WTomas/sufleur-cli/internal/generator"
+	"github.com/sufleur/cli/internal/generator"
 )
 
 func generateAndRead(t *testing.T, prompts []generator.PromptData) string {

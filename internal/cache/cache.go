@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/WTomas/sufleur-cli/internal/generator"
+	"github.com/sufleur/cli/internal/generator"
 )
 
 // Cache stores prompt data as JSON files on disk. Filenames embed the resolved

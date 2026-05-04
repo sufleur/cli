@@ -32,9 +32,9 @@ classifiers = [
 generated = ["chevron", "pydantic"]
 
 [project.urls]
-Homepage = "https://github.com/WTomas/sufleur-cli"
-Issues = "https://github.com/WTomas/sufleur-cli/issues"
-Repository = "https://github.com/WTomas/sufleur-cli"
+Homepage = "https://github.com/sufleur/cli"
+Issues = "https://github.com/sufleur/cli/issues"
+Repository = "https://github.com/sufleur/cli"
 
 [tool.hatch.version]
 path = "src/sufleur_cli/__init__.py"

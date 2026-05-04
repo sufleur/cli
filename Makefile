@@ -1,5 +1,5 @@
 VERSION ?= dev
-LDFLAGS := -ldflags "-X github.com/WTomas/sufleur-cli/internal/cli.Version=$(VERSION)"
+LDFLAGS := -ldflags "-X github.com/sufleur/cli/internal/cli.Version=$(VERSION)"
 
 .PHONY: build test lint clean release release-dry
 

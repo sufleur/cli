@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/WTomas/sufleur-cli/internal/generator"
+	"github.com/sufleur/cli/internal/generator"
 )
 
 func samplePrompt(name, version string) *generator.PromptData {

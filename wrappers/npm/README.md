@@ -1,6 +1,6 @@
 # @sufleur/cli
 
-npm wrapper for the [`sufleur`](https://github.com/WTomas/sufleur-cli) CLI — type-safe codegen for versioned LLM prompts.
+npm wrapper for the [`sufleur`](https://github.com/sufleur/cli) CLI — type-safe codegen for versioned LLM prompts.
 
 The wrapper downloads the matching prebuilt binary from GitHub Releases on `npm install` and exposes it as the `sufleur` command.
 
@@ -36,7 +36,7 @@ This package declares `mustache` and `zod` as required peer dependencies. The CL
 
 | Variable | Purpose |
 | -------- | ------- |
-| `SUFLEUR_BINARY_MIRROR` | Override the binary download base URL. The installer fetches `${MIRROR}/v${version}/${archive}` and `${MIRROR}/v${version}/checksums.txt`. Default: `https://github.com/WTomas/sufleur-cli/releases/download`. |
+| `SUFLEUR_BINARY_MIRROR` | Override the binary download base URL. The installer fetches `${MIRROR}/v${version}/${archive}` and `${MIRROR}/v${version}/checksums.txt`. Default: `https://github.com/sufleur/cli/releases/download`. |
 | `SUFLEUR_SKIP_POSTINSTALL` | Set to `1` to skip the binary download. The `sufleur` command will print recovery instructions on first invocation. |
 
 ## Bypassing postinstall
@@ -62,7 +62,7 @@ npm rebuild @sufleur/cli
 
 ## Source
 
-Source code, issue tracker, and release notes: <https://github.com/WTomas/sufleur-cli>.
+Source code, issue tracker, and release notes: <https://github.com/sufleur/cli>.
 
 ## License
 

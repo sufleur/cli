@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/WTomas/sufleur-cli/internal/promptref"
+	"github.com/sufleur/cli/internal/promptref"
 )
 
 // DefaultEndpoint is the production Sufleur API endpoint.

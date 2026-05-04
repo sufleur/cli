@@ -1,6 +1,6 @@
 # sufleur-cli
 
-pip wrapper for the [`sufleur`](https://github.com/WTomas/sufleur-cli) CLI — type-safe codegen for versioned LLM prompts.
+pip wrapper for the [`sufleur`](https://github.com/sufleur/cli) CLI — type-safe codegen for versioned LLM prompts.
 
 The wrapper ships the prebuilt Go binary inside a per-platform wheel. `pip install` places `sufleur` directly on your `PATH` — no postinstall download, no first-run latency, no Python interpreter in the invocation hot path.
 
@@ -66,7 +66,7 @@ print(find_sufleur_bin())  # absolute path to the binary
 
 ## Source
 
-Source code, issue tracker, and release notes: <https://github.com/WTomas/sufleur-cli>.
+Source code, issue tracker, and release notes: <https://github.com/sufleur/cli>.
 
 ## License
 

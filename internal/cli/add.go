@@ -6,10 +6,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/WTomas/sufleur-cli/internal/config"
-	"github.com/WTomas/sufleur-cli/internal/fetcher"
-	"github.com/WTomas/sufleur-cli/internal/promptref"
-	"github.com/WTomas/sufleur-cli/internal/resolver"
+	"github.com/sufleur/cli/internal/config"
+	"github.com/sufleur/cli/internal/fetcher"
+	"github.com/sufleur/cli/internal/promptref"
+	"github.com/sufleur/cli/internal/resolver"
 )
 
 var addCmd = &cobra.Command{

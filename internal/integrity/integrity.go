@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/WTomas/sufleur-cli/internal/generator"
+	"github.com/sufleur/cli/internal/generator"
 )
 
 // IntegrityError indicates a mismatch between expected and actual content hashes.
