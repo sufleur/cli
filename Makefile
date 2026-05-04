@@ -1,7 +1,7 @@
 VERSION ?= dev
 LDFLAGS := -ldflags "-X github.com/sufleur/cli/internal/cli.Version=$(VERSION)"
 
-.PHONY: build test lint clean release release-dry
+.PHONY: build test lint clean release release-dry release-local
 
 build:
 	go build $(LDFLAGS) -o dist/sufleur ./cmd/sufleur
@@ -43,3 +43,19 @@ release-dry:
 	cd wrappers/npm && npm publish --dry-run --access public
 	git checkout -- wrappers/npm/package.json wrappers/pip/pyproject.toml
 	@echo "dry-run v$(VERSION) — TestPyPI uploaded, npm publish simulated, version bumps reverted"
+
+# Fully offline rehearsal — proves snapshot binaries, wheels, the pip install
+# path, and the npm install.js postinstall path all work. No GitHub Releases /
+# PyPI / npm credentials needed. VERSION must be valid as both a semver string
+# (for npm version) and PEP 440 (for hatch version); plain X.Y.Z works for both.
+release-local:
+	@if [ -z "$(VERSION)" ] || [ "$(VERSION)" = "dev" ]; then echo "VERSION is required (e.g. make release-local VERSION=0.1.0)"; exit 1; fi
+	rm -rf dist/ wrappers/pip/dist/
+	SUFLEUR_LOCAL_VERSION=$(VERSION) goreleaser release --snapshot --clean
+	cd wrappers/npm && npm version $(VERSION) --no-git-tag-version --allow-same-version
+	cd wrappers/pip && hatch version $(VERSION)
+	bash scripts/build-wheels.sh
+	bash scripts/verify-local.sh $(VERSION)
+	bash scripts/verify-local-npm.sh $(VERSION)
+	git checkout -- wrappers/npm/package.json wrappers/pip/pyproject.toml wrappers/pip/src/sufleur_cli/__init__.py
+	@echo "local v$(VERSION) verified — no uploads, working tree clean"

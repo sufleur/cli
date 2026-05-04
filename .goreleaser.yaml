@@ -34,6 +34,14 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# Lets `make release-local VERSION=X` set SUFLEUR_LOCAL_VERSION so the snapshot
+# archives are named sufleur_X_<os>_<arch>.<ext> instead of the default
+# 0.0.0-SNAPSHOT-<sha>. Needed because the npm wrapper's install.js builds URLs
+# from the package version, and the local-mirror test in scripts/verify-local-npm.sh
+# expects archive filenames matching the user-supplied VERSION.
+snapshot:
+  version_template: '{{ if index .Env "SUFLEUR_LOCAL_VERSION" }}{{ .Env.SUFLEUR_LOCAL_VERSION }}{{ else }}{{ .Version }}-SNAPSHOT-{{ .ShortCommit }}{{ end }}'
+
 changelog:
   sort: asc
   filters:
