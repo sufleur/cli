@@ -30,6 +30,16 @@ wrappers/npm/bin/
 wrappers/npm/node_modules/
 wrappers/npm/*.tgz
 
+# pip wrapper
+wrappers/pip/_build_bin/
+wrappers/pip/dist/
+wrappers/pip/build/
+wrappers/pip/*.egg-info/
+
+# Python
+__pycache__/
+*.pyc
+
 # IDE
 .idea/
 .vscode/
