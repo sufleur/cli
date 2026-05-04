@@ -25,6 +25,11 @@ Thumbs.db
 # Sufleur cache
 .sufleur/
 
+# npm wrapper
+wrappers/npm/bin/
+wrappers/npm/node_modules/
+wrappers/npm/*.tgz
+
 # IDE
 .idea/
 .vscode/
