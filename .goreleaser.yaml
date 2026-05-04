@@ -1,5 +1,10 @@
 version: 2
 
+# Drives both the archive prefix and (more importantly) the dist/ build ID prefix
+# that wrappers/pip/hatch_build.py reads. Without this, goreleaser falls back to
+# the working-directory name ("sufleur-cli") and the pip hook can't find binaries.
+project_name: sufleur
+
 builds:
   - main: ./cmd/sufleur
     binary: sufleur
@@ -12,13 +17,19 @@ builds:
     goarch:
       - amd64
       - arm64
+    # Pinned so the dist/ subdirs (sufleur_<os>_<arch>_v1, _v8.0) stay stable
+    # across goreleaser versions — wrappers/pip/hatch_build.py reads these paths.
+    goamd64:
+      - v1
+    goarm64:
+      - v8.0
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: "sufleur_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
 checksum:
   name_template: "checksums.txt"

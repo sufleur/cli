@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sufleur-cli"
-version = "0.0.0"
+dynamic = ["version"]
 description = "CLI for sufleur — type-safe codegen for versioned LLM prompts."
 readme = "README.md"
 license = "MIT"
@@ -35,6 +35,12 @@ generated = ["chevron", "pydantic"]
 Homepage = "https://github.com/WTomas/sufleur-cli"
 Issues = "https://github.com/WTomas/sufleur-cli/issues"
 Repository = "https://github.com/WTomas/sufleur-cli"
+
+[tool.hatch.version]
+path = "src/sufleur_cli/__init__.py"
+# Allow non-monotonic bumps so `make release-dry VERSION=X.Y.Z.devN` still works
+# after a real release has committed a higher version (e.g. 0.1.0 → 0.1.1.dev1).
+validate-bump = false
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sufleur_cli"]

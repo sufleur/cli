@@ -14,10 +14,10 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 #   - the binary filename inside that subdirectory
 #   - the PEP 425 platform tag for the resulting wheel
 #
-# GoReleaser dist paths follow `dist/<binary>_<goos>_<goarch>{_<variant>}/<binary>`.
-# The variants for amd64/arm64 (e.g. `_v1`, `_v8.0`) come from goreleaser's default
-# GOAMD64/GOARM64 settings; revisit when MAN-27 finalizes .goreleaser.yaml. For
-# local testing, set SUFLEUR_BINARY_PATH to bypass the dist/ lookup entirely.
+# GoReleaser dist paths follow `dist/<binary>_<goos>_<goarch>_<variant>/<binary>`.
+# The `_v1` (amd64) and `_v8.0` (arm64) variants are pinned in .goreleaser.yaml
+# via goamd64/goarm64. For local testing, set SUFLEUR_BINARY_PATH to bypass the
+# dist/ lookup entirely.
 _TARGETS: dict[str, dict[str, str]] = {
     "darwin_amd64": {
         "dist_subdir": "sufleur_darwin_amd64_v1",
