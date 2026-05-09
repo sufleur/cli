@@ -1,6 +1,8 @@
 # sufleur-cli
 
-Type-safe codegen for versioned LLM prompts. Manage prompts the way `pip` manages packages — declare them in `sufleur.yaml`, lock to `sufleur-lock.yaml`, generate one Python module with full types and runtime helpers.
+The CLI for [**Sufleur**](https://sufleur.com) — the registry where you author, version, and publish LLM prompts. This is the consumer side: it installs prompts from your Sufleur workspace into your project the way `pip` installs packages — declared in `sufleur.yaml`, locked to `sufleur-lock.yaml`, generated into one Python module with full types and runtime helpers.
+
+Create a workspace and start authoring prompts at <https://sufleur.com>.
 
 ## What you call from your code
 
@@ -144,9 +146,10 @@ print(find_sufleur_bin())  # absolute path to the binary
 
 Alpine / musl libc is currently unsupported (no musllinux wheel) — pip will refuse with "no matching distribution" rather than silently producing a broken install. There is no source distribution.
 
-## Source
+## Links
 
-Source code, issue tracker, release notes: <https://github.com/sufleur/cli>.
+- **Sufleur platform** — author and manage prompts: <https://sufleur.com>
+- **Source code, issues, release notes**: <https://github.com/sufleur/cli>
 
 ## License
 

@@ -1,6 +1,8 @@
 # @sufleur/cli
 
-Type-safe codegen for versioned LLM prompts. Manage prompts the way `npm` manages packages — declare them in `sufleur.yaml`, lock to `sufleur-lock.yaml`, generate one TypeScript file with full types and runtime helpers.
+The CLI for [**Sufleur**](https://sufleur.com) — the registry where you author, version, and publish LLM prompts. This is the consumer side: it installs prompts from your Sufleur workspace into your project the way `npm` installs packages — declared in `sufleur.yaml`, locked to `sufleur-lock.yaml`, generated into one TypeScript file with full types and runtime helpers.
+
+Create a workspace and start authoring prompts at <https://sufleur.com>.
 
 ## What you call from your code
 
@@ -127,9 +129,10 @@ sufleur generate
 
 Alpine / musl libc is currently unsupported (no musllinux binary). Override the binary download URL with `SUFLEUR_BINARY_MIRROR`. Set `SUFLEUR_SKIP_POSTINSTALL=1` to defer the download (e.g. when building an image you'll rehydrate later with `npm rebuild @sufleur/cli`).
 
-## Source
+## Links
 
-Source code, issue tracker, release notes: <https://github.com/sufleur/cli>.
+- **Sufleur platform** — author and manage prompts: <https://sufleur.com>
+- **Source code, issues, release notes**: <https://github.com/sufleur/cli>
 
 ## License
 
