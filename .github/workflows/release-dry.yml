@@ -1,0 +1,92 @@
+name: release-dry
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Dry-run version (PEP 440 + semver, e.g. 0.1.0.rc1)"
+        required: true
+        type: string
+
+jobs:
+  build-binaries:
+    name: Build snapshot binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean
+        env:
+          SUFLEUR_LOCAL_VERSION: ${{ inputs.version }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  build-wheels:
+    name: Build wheels
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install hatch
+      - working-directory: wrappers/pip
+        run: hatch version "${{ inputs.version }}"
+      - run: bash scripts/build-wheels.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels
+          path: wrappers/pip/dist/*.whl
+          retention-days: 7
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build-wheels
+    runs-on: ubuntu-latest
+    environment: pypi-release-test
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-npm-dry:
+    name: npm publish (dry-run)
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - working-directory: wrappers/npm
+        run: |
+          npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
+          npm publish --access public --dry-run

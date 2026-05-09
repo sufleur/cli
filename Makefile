@@ -1,7 +1,7 @@
 VERSION ?= dev
 LDFLAGS := -ldflags "-X github.com/sufleur/cli/internal/cli.Version=$(VERSION)"
 
-.PHONY: build test lint clean release release-dry release-local
+.PHONY: build test lint clean release release-local
 
 build:
 	go build $(LDFLAGS) -o dist/sufleur ./cmd/sufleur
@@ -15,34 +15,22 @@ lint:
 clean:
 	rm -rf dist/ wrappers/pip/dist/
 
+# Bumps wrapper versions, commits, tags, and pushes. The tag push triggers
+# .github/workflows/release.yml, which builds binaries with goreleaser, builds
+# the per-platform wheels, and publishes to PyPI (Trusted Publishing) + npm
+# (NPM_TOKEN). For a TestPyPI rehearsal, run the release-dry.yml workflow
+# manually from the Actions tab.
 release:
 	@if [ -z "$(VERSION)" ] || [ "$(VERSION)" = "dev" ]; then echo "VERSION is required (e.g. make release VERSION=0.1.0)"; exit 1; fi
 	@[ "$$(git symbolic-ref --short HEAD)" = "main" ] || (echo "must be on main"; exit 1)
 	@git diff --quiet && git diff --cached --quiet || (echo "working tree dirty"; exit 1)
-	rm -rf dist/ wrappers/pip/dist/
 	cd wrappers/npm && npm version $(VERSION) --no-git-tag-version
 	cd wrappers/pip && hatch version $(VERSION)
-	git add wrappers/npm/package.json wrappers/pip/pyproject.toml
+	git add wrappers/npm/package.json wrappers/pip/src/sufleur_cli/__init__.py
 	git commit -m "release: v$(VERSION)"
 	git tag v$(VERSION)
 	git push --follow-tags origin main
-	goreleaser release --clean
-	bash scripts/build-wheels.sh
-	twine upload wrappers/pip/dist/*.whl
-	cd wrappers/npm && npm publish --access public
-	@echo "released v$(VERSION) — git, GitHub Release, PyPI, npm"
-
-release-dry:
-	@if [ -z "$(VERSION)" ] || [ "$(VERSION)" = "dev" ]; then echo "VERSION is required (e.g. make release-dry VERSION=0.1.0.dev1)"; exit 1; fi
-	rm -rf dist/ wrappers/pip/dist/
-	goreleaser release --snapshot --clean
-	cd wrappers/npm && npm version $(VERSION) --no-git-tag-version --allow-same-version
-	cd wrappers/pip && hatch version $(VERSION)
-	bash scripts/build-wheels.sh
-	twine upload --repository testpypi wrappers/pip/dist/*.whl
-	cd wrappers/npm && npm publish --dry-run --access public
-	git checkout -- wrappers/npm/package.json wrappers/pip/pyproject.toml
-	@echo "dry-run v$(VERSION) — TestPyPI uploaded, npm publish simulated, version bumps reverted"
+	@echo "tagged v$(VERSION) — pushed to origin. CI release.yml is now building and publishing."
 
 # Fully offline rehearsal — proves snapshot binaries, wheels, the pip install
 # path, and the npm install.js postinstall path all work. No GitHub Releases /
