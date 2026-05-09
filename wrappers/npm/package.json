@@ -1,28 +1,58 @@
 {
   "name": "@sufleur/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "CLI for sufleur — type-safe codegen for versioned LLM prompts.",
-  "keywords": ["sufleur", "cli", "llm", "prompts", "codegen", "typescript"],
+  "keywords": [
+    "sufleur",
+    "cli",
+    "llm",
+    "prompts",
+    "codegen",
+    "typescript"
+  ],
   "homepage": "https://github.com/sufleur/cli#readme",
-  "bugs": { "url": "https://github.com/sufleur/cli/issues" },
+  "bugs": {
+    "url": "https://github.com/sufleur/cli/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sufleur/cli.git",
     "directory": "wrappers/npm"
   },
   "license": "MIT",
-  "bin": { "sufleur": "run.js" },
-  "files": ["install.js", "run.js", "README.md"],
-  "scripts": { "postinstall": "node install.js" },
-  "engines": { "node": ">=16" },
-  "os": ["darwin", "linux", "win32"],
-  "cpu": ["x64", "arm64"],
+  "bin": {
+    "sufleur": "run.js"
+  },
+  "files": [
+    "install.js",
+    "run.js",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
   "peerDependencies": {
     "mustache": "*",
     "zod": "*"
   },
   "peerDependenciesMeta": {
-    "mustache": { "optional": false },
-    "zod": { "optional": false }
+    "mustache": {
+      "optional": false
+    },
+    "zod": {
+      "optional": false
+    }
   }
 }
