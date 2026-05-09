@@ -31,9 +31,6 @@ Watch the run at <https://github.com/sufleur/cli/actions/workflows/release.yml>.
    environment, which requires reviewer approval.
 4. **publish-npm** — `npm publish --access public --provenance` with auth via
    `NPM_TOKEN`. The `--provenance` attestation uses GitHub OIDC for signing.
-   Token-based auth is a transitional step — npm Trusted Publishing is a
-   per-package binding that can only be configured after the package exists,
-   so the plan is to migrate after the first release lands on the registry.
 
 ## Rehearsing before a real release
 
@@ -70,7 +67,7 @@ sufleur --help
 | Secret         | Used by             | Notes                                          |
 | -------------- | ------------------- | ---------------------------------------------- |
 | `GITHUB_TOKEN` | every job (default) | Issued by Actions per-run, no setup            |
-| `NPM_TOKEN`    | `publish-npm`       | Granular access token, scoped to `@sufleur/cli`, 1-year expiry. Planned migration to OIDC after the first published release. |
+| `NPM_TOKEN`    | `publish-npm`       | Granular access token scoped to `@sufleur/cli`.                                  |
 
 PyPI and TestPyPI use Trusted Publishing — no token in the repo.
 
