@@ -1,8 +1,31 @@
 # @sufleur/cli
 
-npm wrapper for the [`sufleur`](https://github.com/sufleur/cli) CLI — type-safe codegen for versioned LLM prompts.
+The CLI for [**Sufleur**](https://sufleur.com) — the registry where you author, version, and publish LLM prompts. This is the consumer side: it installs prompts from your Sufleur workspace into your project the way `npm` installs packages — declared in `sufleur.yaml`, locked to `sufleur-lock.yaml`, generated into one TypeScript file with full types and runtime helpers.
 
-The wrapper downloads the matching prebuilt binary from GitHub Releases on `npm install` and exposes it as the `sufleur` command.
+Create a workspace and start authoring prompts at <https://sufleur.com>.
+
+## What you call from your code
+
+```ts
+import { getPrompt } from './generated/prompts';
+
+const review = getPrompt('@my-workspace/code-review');
+
+const { prompt } = review.render('en', {
+  diff: '...',
+  language: 'go',
+});
+// → ready-to-send prompt string
+
+const result = review.parseOutput(llmResponseText);
+if (result.success) {
+  result.data; // typed by the prompt's output schema (Zod-validated)
+} else {
+  result.error;
+}
+```
+
+`'@my-workspace/code-review'` is checked at compile time: typos fail to type-check, the entrypoint name `'en'` is narrowed against the prompt's available entrypoints, and the input shape is the JSON Schema declared on that entrypoint. The version that resolves at codegen time is pinned in `sufleur-lock.yaml`.
 
 ## Install
 
@@ -14,55 +37,102 @@ sufleur --help
 Or run on demand:
 
 ```bash
-npx sufleur --help
+npx -p @sufleur/cli sufleur --help
 ```
+
+The wrapper downloads the matching prebuilt binary on `npm install` and exposes it as `sufleur`. There's no JS in the hot path — the `sufleur` command is the native binary.
+
+## Quick start
+
+```bash
+mkdir my-app && cd my-app
+sufleur init                                  # creates sufleur.yaml interactively
+sufleur add @my-workspace/code-review ^1.0.0  # add + fetch + lock
+sufleur generate                              # writes ./generated/prompts.ts
+```
+
+The generated file imports two runtime peers — install them in your project:
+
+```bash
+npm i mustache
+npm i -D @types/mustache
+# only if any prompt has an output schema:
+npm i zod
+```
+
+## What `sufleur generate` emits
+
+A single `.ts` file containing every prompt inlined (no runtime fetches). The header documents what's exported; the public API is `getPrompt(name)`, which returns:
+
+- **`render(entrypoint, input)` → `{ prompt: string }`** — Mustache renders the entrypoint template against `input`. The input type is narrowed by entrypoint name; entrypoints with no input schema take no second argument.
+- **`metadata`** — `{ version, ...your custom workspace metadata, outputSchema? }`. The pinned version comes from the lockfile; the rest comes from whatever metadata your registry assigned to that prompt version.
+- **`parseOutput(raw)`** *(only present if the prompt has an output schema)* — strips ``` fences, JSON-parses, and validates with a Zod schema generated from the prompt's JSON Schema. Returns `{ success: true, data }` or `{ success: false, error }`.
+
+Plus exported types per entrypoint:
+
+```ts
+export type CodeReview_EnInput = { diff: string; language: string };
+```
+
+Prompts published with `DRAFT` status emit a runtime `console.warn` when their `getPrompt` is called.
+
+## sufleur.yaml
+
+The manifest. Looks like:
+
+```yaml
+api_keys:
+  my-workspace: ${MY_WORKSPACE_API_KEY}
+
+prompts:
+  '@my-workspace/greeting': '*'
+  '@my-workspace/code-review': '^2.0.0'
+  # alias: keep two pinned versions side-by-side under different names
+  '@my-workspace/code-review-strict': '@my-workspace/code-review@~1.4.0'
+
+output:
+  language: typescript
+  file: ./generated/prompts.ts
+```
+
+Constraints are npm-style semver ranges (`^`, `~`, `>=`, exact, `*`). The resolution is recorded in `sufleur-lock.yaml`. **Commit both files** — `sufleur.yaml` is the source of truth, `sufleur-lock.yaml` is the receipt.
+
+## CI usage
+
+```bash
+sufleur install --frozen   # fail if lockfile is stale
+sufleur generate
+```
+
+`--frozen` is the npm-`ci` equivalent: refuses to update the lockfile, hard-errors if the manifest and lockfile disagree.
+
+## Commands
+
+| Command | Description |
+| ------- | ----------- |
+| `sufleur init` | Interactive scaffolding for `sufleur.yaml`. |
+| `sufleur add @ws/name [range]` | Add a prompt, fetch it, update the lockfile. `--alias <name>` keeps multiple versions; `--force` overwrites an existing entry. |
+| `sufleur remove @ws/name` | Remove a prompt from the manifest and prune its cache (kept if another alias still resolves to the same version). |
+| `sufleur install` | Resolve the manifest, fetch what's missing, refresh the lockfile. `--frozen` for CI. |
+| `sufleur update [@ws/name]` | Re-resolve constraints — one prompt or all. |
+| `sufleur generate` | Regenerate the output file from the lockfile + cache. |
+
+`-v` / `--verbose` enables HTTP request/response logs on any command. Variables in `.env` are loaded automatically; per-workspace API keys can be referenced as `${ENV_VAR_NAME}` in `sufleur.yaml`.
 
 ## Supported platforms
 
-| OS      | Architectures   |
-| ------- | --------------- |
-| macOS   | x64, arm64      |
-| Linux   | x64, arm64      |
-| Windows | x64, arm64 (Windows 10 1803+) |
+| OS      | Architectures                  |
+| ------- | ------------------------------ |
+| macOS   | x64, arm64                     |
+| Linux   | x64, arm64                     |
+| Windows | x64, arm64 (Windows 10 1803+)  |
 
-## Peer dependencies
+Alpine / musl libc is currently unsupported (no musllinux binary). Override the binary download URL with `SUFLEUR_BINARY_MIRROR`. Set `SUFLEUR_SKIP_POSTINSTALL=1` to defer the download (e.g. when building an image you'll rehydrate later with `npm rebuild @sufleur/cli`).
 
-This package declares `mustache` and `zod` as required peer dependencies. The CLI itself doesn't import them, but the TypeScript code emitted by `sufleur generate` does — so listing them as peers nudges your project to install them before runtime.
+## Links
 
-- npm 7+ installs peer dependencies automatically.
-- npm 6 only warns. If you see a peer warning, run `npm i mustache zod`.
-
-## Environment variables
-
-| Variable | Purpose |
-| -------- | ------- |
-| `SUFLEUR_BINARY_MIRROR` | Override the binary download base URL. The installer fetches `${MIRROR}/v${version}/${archive}` and `${MIRROR}/v${version}/checksums.txt`. Default: `https://github.com/sufleur/cli/releases/download`. |
-| `SUFLEUR_SKIP_POSTINSTALL` | Set to `1` to skip the binary download. The `sufleur` command will print recovery instructions on first invocation. |
-
-## Bypassing postinstall
-
-If you install with `--ignore-scripts`, the binary won't be downloaded. Populate it manually:
-
-```bash
-node $(npm root -g)/@sufleur/cli/install.js
-```
-
-For an offline `npm install`, the postinstall detects `npm_config_offline=true` and exits cleanly. Once online:
-
-```bash
-npm rebuild @sufleur/cli
-```
-
-## How it works
-
-1. `postinstall` runs `install.js`, which detects your platform/arch and computes the matching archive name (e.g., `sufleur_1.2.3_darwin_arm64.tar.gz`).
-2. It downloads `checksums.txt` and the archive from GitHub Releases (or your configured mirror), verifying the SHA256 in-stream.
-3. It extracts the binary into `bin/` and sets the executable bit.
-4. `run.js` (the package's `bin` entrypoint) execs the binary with your arguments and inherits stdio.
-
-## Source
-
-Source code, issue tracker, and release notes: <https://github.com/sufleur/cli>.
+- **Sufleur platform** — author and manage prompts: <https://sufleur.com>
+- **Source code, issues, release notes**: <https://github.com/sufleur/cli>
 
 ## License
 

@@ -1,8 +1,27 @@
 # sufleur-cli
 
-pip wrapper for the [`sufleur`](https://github.com/sufleur/cli) CLI — type-safe codegen for versioned LLM prompts.
+The CLI for [**Sufleur**](https://sufleur.com) — the registry where you author, version, and publish LLM prompts. This is the consumer side: it installs prompts from your Sufleur workspace into your project the way `pip` installs packages — declared in `sufleur.yaml`, locked to `sufleur-lock.yaml`, generated into one Python module with full types and runtime helpers.
 
-The wrapper ships the prebuilt Go binary inside a per-platform wheel. `pip install` places `sufleur` directly on your `PATH` — no postinstall download, no first-run latency, no Python interpreter in the invocation hot path.
+Create a workspace and start authoring prompts at <https://sufleur.com>.
+
+## What you call from your code
+
+```python
+from generated.prompts import get_prompt
+
+review = get_prompt("@my-workspace/code-review")
+
+rendered = review.render("en", {"diff": "...", "language": "go"})
+prompt: str = rendered["prompt"]  # ready-to-send prompt string
+
+result = review.parse_output(llm_response_text)
+if result["success"]:
+    result["data"]  # Pydantic model, validated against the prompt's output schema
+else:
+    result["error"]
+```
+
+`"@my-workspace/code-review"` is checked at type-check time (mypy / pyright): typos fail, the entrypoint name `"en"` is narrowed against the prompt's available entrypoints (via `@overload`), and the input is a `TypedDict` derived from the JSON Schema declared on that entrypoint. The version that resolves at codegen time is pinned in `sufleur-lock.yaml`.
 
 ## Install
 
@@ -17,39 +36,92 @@ Or with [pipx](https://pipx.pypa.io/) for an isolated install:
 pipx install sufleur-cli
 ```
 
-If you also want the runtime dependencies that the **generated** Python code needs (see below):
+The wrapper ships the prebuilt binary inside a per-platform wheel — pip selects the right one via PEP 425 platform tags. There's no Python interpreter in the invocation hot path; `sufleur` is the native binary on your `PATH`.
+
+## Quick start
+
+```bash
+mkdir my-app && cd my-app
+sufleur init                                  # creates sufleur.yaml interactively
+sufleur add @my-workspace/code-review ^1.0.0  # add + fetch + lock
+sufleur generate                              # writes ./generated/prompts.py
+```
+
+The generated module imports two runtime peers. Install them with the `[generated]` extra:
 
 ```bash
 pip install 'sufleur-cli[generated]'
 ```
 
-## Supported platforms
+…or add `chevron` (Mustache templating) and `pydantic` (output-schema validation, only needed when prompts have output schemas) directly to your project's dependencies. The CLI itself has no Python runtime deps; the `[generated]` extra exists so users who run `init`/`add`/`install` but never `generate` aren't forced to install code they don't use.
 
-| OS      | Architectures   |
-| ------- | --------------- |
-| macOS   | x86_64, arm64   |
-| Linux   | x86_64, aarch64 (manylinux 2.17 / glibc 2.17+) |
-| Windows | x86_64, arm64   |
+The generated code targets **Python 3.10+** (PEP 604 union syntax).
 
-Pip selects the right wheel automatically via PEP 425 platform tags. There is no source distribution — installing on an unsupported platform will fail with pip's "no matching distribution" error rather than silently producing a broken install.
+## What `sufleur generate` emits
 
-## Generated code dependencies (`[generated]` extra)
+A single `.py` module containing every prompt inlined (no runtime fetches). The public API is `get_prompt(name)`, which returns a result object with:
 
-The CLI itself has no Python runtime dependencies. However, the Python code emitted by `sufleur generate` imports [`chevron`](https://pypi.org/project/chevron/) (Mustache templating) and [`pydantic`](https://pypi.org/project/pydantic/) (model validation). Install them once with:
+- **`render(entrypoint, input)` → `{"prompt": str}`** — Chevron renders the entrypoint template against `input`. The signature is narrowed via `@overload` per entrypoint, so type checkers reject the wrong input shape.
+- **`metadata`** — a `TypedDict` containing `version`, your workspace's custom metadata, and (when applicable) `output_schema`.
+- **`parse_output(raw)`** *(only present if the prompt has an output schema)* — strips ``` fences, JSON-parses, and validates with a Pydantic model generated from the prompt's JSON Schema. Returns `{"success": True, "data": <Model>}` or `{"success": False, "error": str}`.
 
-```bash
-pip install 'sufleur-cli[generated]'
+Plus generated `TypedDict`s per entrypoint, with field docstrings for any schema property that has a `description`:
+
+```python
+class CodeReview_EnInput(TypedDict):
+    diff: str
+    """The unified diff to review."""
+    language: str
 ```
 
-…or add `chevron` and `pydantic` directly to your project's dependencies. Either is fine — `[generated]` exists so users who run `sufleur init`/`install`/`update` but never `generate` aren't forced to install dependencies they don't need.
+Prompts published with `DRAFT` status emit a `warnings.warn(...)` when their `get_prompt` is called.
 
-The generated code targets Python 3.10+ (PEP 604 union syntax).
+## sufleur.yaml
 
-## Invocation
+The manifest. Looks like:
 
-The `sufleur` command on your `PATH` after install is the Go binary itself, not a Python shim. Cold start matches a native binary (~5 ms), and the process tree shows only the binary — no Python interpreter wrapping it.
+```yaml
+api_keys:
+  my-workspace: ${MY_WORKSPACE_API_KEY}
 
-A secondary entrypoint exists for tools that prefer module-style invocation:
+prompts:
+  '@my-workspace/greeting': '*'
+  '@my-workspace/code-review': '^2.0.0'
+  # alias: keep two pinned versions side-by-side under different names
+  '@my-workspace/code-review-strict': '@my-workspace/code-review@~1.4.0'
+
+output:
+  language: python
+  file: ./generated/prompts.py
+```
+
+Constraints are npm-style semver ranges (`^`, `~`, `>=`, exact, `*`). The resolution is recorded in `sufleur-lock.yaml`. **Commit both files** — `sufleur.yaml` is the source of truth, `sufleur-lock.yaml` is the receipt.
+
+## CI usage
+
+```bash
+sufleur install --frozen   # fail if lockfile is stale
+sufleur generate
+```
+
+`--frozen` is the `pip-compile`-equivalent: refuses to update the lockfile, hard-errors if the manifest and lockfile disagree.
+
+## Commands
+
+| Command | Description |
+| ------- | ----------- |
+| `sufleur init` | Interactive scaffolding for `sufleur.yaml`. |
+| `sufleur add @ws/name [range]` | Add a prompt, fetch it, update the lockfile. `--alias <name>` keeps multiple versions; `--force` overwrites an existing entry. |
+| `sufleur remove @ws/name` | Remove a prompt from the manifest and prune its cache (kept if another alias still resolves to the same version). |
+| `sufleur install` | Resolve the manifest, fetch what's missing, refresh the lockfile. `--frozen` for CI. |
+| `sufleur update [@ws/name]` | Re-resolve constraints — one prompt or all. |
+| `sufleur generate` | Regenerate the output file from the lockfile + cache. |
+
+`-v` / `--verbose` enables HTTP request/response logs on any command. Variables in `.env` are loaded automatically; per-workspace API keys can be referenced as `${ENV_VAR_NAME}` in `sufleur.yaml`.
+
+## Invocation modes
+
+The `sufleur` command on your `PATH` is the Go binary itself. For tools that prefer module-style invocation:
 
 ```bash
 python -m sufleur_cli --help
@@ -64,9 +136,20 @@ from sufleur_cli import find_sufleur_bin
 print(find_sufleur_bin())  # absolute path to the binary
 ```
 
-## Source
+## Supported platforms
 
-Source code, issue tracker, and release notes: <https://github.com/sufleur/cli>.
+| OS      | Architectures                                  |
+| ------- | ---------------------------------------------- |
+| macOS   | x86_64, arm64                                  |
+| Linux   | x86_64, aarch64 (manylinux 2.17 / glibc 2.17+) |
+| Windows | x86_64, arm64                                  |
+
+Alpine / musl libc is currently unsupported (no musllinux wheel) — pip will refuse with "no matching distribution" rather than silently producing a broken install. There is no source distribution.
+
+## Links
+
+- **Sufleur platform** — author and manage prompts: <https://sufleur.com>
+- **Source code, issues, release notes**: <https://github.com/sufleur/cli>
 
 ## License
 
