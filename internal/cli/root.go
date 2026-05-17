@@ -39,6 +39,7 @@ func init() {
 	rootCmd.AddCommand(promptCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(fileCmd)
+	rootCmd.AddCommand(skillCmd)
 }
 
 // Execute runs the root command. When the matched command has SilenceErrors
