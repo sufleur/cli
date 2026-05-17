@@ -53,4 +53,11 @@ func init() {
 		versionSetOutputSchemaCmd,
 		versionDumpCmd,
 	)
+	fileCmd.AddCommand(
+		fileCreateCmd,
+		fileUpdateCmd,
+		fileDeleteCmd,
+		fileListCmd,
+		fileSetEntrypointCmd,
+	)
 }

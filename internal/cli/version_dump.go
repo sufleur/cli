@@ -107,7 +107,7 @@ func writeDump(dir string, v *userapi.PromptVersion) error {
 		if strings.ContainsAny(f.Name, "/\\") {
 			return fmt.Errorf("file name %q contains a path separator; refusing to write", f.Name)
 		}
-		path := filepath.Join(filesDir, f.Name)
+		path := filepath.Join(filesDir, f.Name+".mustache")
 		if err := os.WriteFile(path, []byte(f.Content), 0o644); err != nil {
 			return fmt.Errorf("writing %s: %w", path, err)
 		}
