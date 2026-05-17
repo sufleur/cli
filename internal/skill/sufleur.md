@@ -22,6 +22,8 @@ If the version reported there does not match `${VERSION}`, warn the user that th
 
 Fetch whichever fits your context budget when you need deeper background on the platform (data model, workspace concepts, how publishing works, schema inference, etc.).
 
+**Invocation**: in Python projects (where the `sufleur-cli` wheel is installed in the active venv), call it directly as `sufleur`. In Node projects with `@sufleur/cli` installed as a dependency, invoke through the project's package manager — e.g. `pnpm sufleur …`, `yarn sufleur …`, `npx sufleur …`, `bunx sufleur …`. All command examples below assume the binary is reachable as `sufleur`; substitute the right prefix for your project layout.
+
 The CLI is workspace-scoped. Every resource is addressed with a fully-qualified name; there is no "active workspace" context.
 
 ## Authentication
