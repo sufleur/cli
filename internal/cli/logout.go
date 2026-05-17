@@ -9,15 +9,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sufleur/cli/internal/auth"
 	"github.com/sufleur/cli/internal/credentials"
+	"github.com/sufleur/cli/internal/userapi"
 )
 
 var logoutCmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Revoke the stored user API key and remove local credentials",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		verbose, _ := cmd.Flags().GetBool("verbose")
 		force, _ := cmd.Flags().GetBool("force")
 
 		exists, err := credentials.Exists()
@@ -29,13 +28,12 @@ var logoutCmd = &cobra.Command{
 			return nil
 		}
 
-		creds, err := credentials.Load()
+		client, creds, err := loadUserAPIClient(cmd)
 		if err != nil {
 			return err
 		}
 
-		hc := newHTTPClient(verbose)
-		revoked, err := auth.RevokeUserAPIKey(cmd.Context(), hc, creds.APIBase, creds.APIKey, creds.KeyID)
+		revoked, err := client.RevokeUserAPIKey(cmd.Context(), creds.KeyID)
 
 		out := cmd.OutOrStdout()
 		switch {
@@ -43,10 +41,9 @@ var logoutCmd = &cobra.Command{
 			fmt.Fprintln(out, "Revoked stored user API key.")
 		case err == nil && !revoked:
 			fmt.Fprintln(out, "Stored key was already revoked on the server.")
-		case errors.Is(err, auth.ErrBearerRejected):
+		case errors.Is(err, userapi.ErrBearerRejected):
 			fmt.Fprintln(out, "Stored key was no longer valid on the server.")
 		default:
-			// Network / unexpected error — let the user decide whether to wipe local creds.
 			fmt.Fprintf(out, "Could not contact the server to revoke the key: %v\n", err)
 			if !force && !confirm(cmd.InOrStdin(), out, "Delete local credentials anyway?") {
 				return fmt.Errorf("aborted; local credentials kept")
