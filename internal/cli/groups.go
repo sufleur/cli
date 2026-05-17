@@ -43,4 +43,14 @@ func init() {
 		g.PersistentFlags().Bool("json", false, "Output a single JSON value on stdout instead of human-readable text")
 	}
 	promptCmd.AddCommand(promptCreateCmd, promptUpdateCmd, promptListCmd, promptGetCmd)
+	versionCmd.AddCommand(
+		versionDraftCmd,
+		versionDeleteCmd,
+		versionListCmd,
+		versionGetCmd,
+		versionSetMetadataCmd,
+		versionDeleteMetadataCmd,
+		versionSetOutputSchemaCmd,
+		versionDumpCmd,
+	)
 }
