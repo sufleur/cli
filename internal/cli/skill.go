@@ -17,8 +17,8 @@ into your agent tool of choice.
 
 Examples:
 
-  # Claude Code
-  sufleur skill > ~/.claude/skills/sufleur.md
+  # Claude Code (each skill lives in its own directory with a SKILL.md inside)
+  mkdir -p ~/.claude/skills/sufleur && sufleur skill > ~/.claude/skills/sufleur/SKILL.md
 
   # Cursor
   sufleur skill > .cursor/rules/sufleur.md
