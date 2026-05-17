@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -37,12 +36,21 @@ func init() {
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(logoutCmd)
 	rootCmd.AddCommand(meCmd)
+	rootCmd.AddCommand(promptCmd)
+	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(fileCmd)
 }
 
-// Execute runs the root command.
+// Execute runs the root command. When the matched command has SilenceErrors
+// set (the new agent commands), we format the error ourselves so cobra's
+// default print does not run; existing commands keep cobra's default output.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	cmd, err := rootCmd.ExecuteC()
+	if err == nil {
+		return
 	}
+	if cmd != nil && cmd.SilenceErrors {
+		handleError(cmd, err)
+	}
+	os.Exit(1)
 }
