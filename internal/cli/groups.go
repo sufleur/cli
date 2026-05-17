@@ -42,7 +42,7 @@ func init() {
 	for _, g := range []*cobra.Command{promptCmd, versionCmd, fileCmd} {
 		g.PersistentFlags().Bool("json", false, "Output a single JSON value on stdout instead of human-readable text")
 	}
-	promptCmd.AddCommand(promptCreateCmd, promptUpdateCmd, promptListCmd, promptGetCmd)
+	promptCmd.AddCommand(promptCreateCmd, promptUpdateCmd, promptListCmd, promptGetCmd, promptRenderCmd)
 	versionCmd.AddCommand(
 		versionDraftCmd,
 		versionDeleteCmd,
