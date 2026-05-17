@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -29,13 +28,10 @@ var meCmd = &cobra.Command{
 			return err
 		}
 
-		out := cmd.OutOrStdout()
 		if asJSON {
-			enc := json.NewEncoder(out)
-			enc.SetIndent("", "  ")
-			return enc.Encode(me)
+			return printJSON(cmd, me)
 		}
-		fmt.Fprintf(out, "Email: %s\nID:    %s\n", me.Email, me.ID)
+		fmt.Fprintf(cmd.OutOrStdout(), "Email: %s\nID:    %s\n", me.Email, me.ID)
 		return nil
 	},
 }
