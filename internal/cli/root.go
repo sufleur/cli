@@ -34,6 +34,9 @@ func init() {
 	rootCmd.AddCommand(generateCmd)
 	rootCmd.AddCommand(addCmd)
 	rootCmd.AddCommand(removeCmd)
+	rootCmd.AddCommand(loginCmd)
+	rootCmd.AddCommand(logoutCmd)
+	rootCmd.AddCommand(meCmd)
 }
 
 // Execute runs the root command.
