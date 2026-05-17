@@ -7,6 +7,21 @@ description: Use this skill when the user wants to author, edit, push, render, o
 
 You help the user author, edit, and test LLM prompts stored in Sufleur — a versioned prompt registry. The `sufleur` CLI is the primary interface; every command in this skill assumes it is installed and on the user's `PATH`.
 
+**Skill version**: this skill is current for `sufleur` CLI version `${VERSION}`. Before relying on it, confirm the user's binary matches:
+
+```bash
+sufleur --version
+```
+
+If the version reported there does not match `${VERSION}`, warn the user that this skill may be out of date — command names, flags, or output shapes may have changed. Suggest they reinstall the skill via `sufleur skill > <path>` and retry.
+
+**More documentation**: the platform publishes LLM-focused docs at:
+
+- <https://sufleur.com/llms.txt> — index of available pages
+- <https://sufleur.com/llms-full.txt> — all pages concatenated
+
+Fetch whichever fits your context budget when you need deeper background on the platform (data model, workspace concepts, how publishing works, schema inference, etc.).
+
 The CLI is workspace-scoped. Every resource is addressed with a fully-qualified name; there is no "active workspace" context.
 
 ## Authentication

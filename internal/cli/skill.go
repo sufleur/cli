@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -26,7 +27,8 @@ The content describes when and how to use the Sufleur CLI and ships with the
 binary, so it always stays in sync with the commands you have available.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		_, err := fmt.Fprint(cmd.OutOrStdout(), skill.Markdown)
+		content := strings.ReplaceAll(skill.Markdown, "${VERSION}", Version)
+		_, err := fmt.Fprint(cmd.OutOrStdout(), content)
 		return err
 	},
 }
