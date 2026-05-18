@@ -931,6 +931,34 @@ func TestOutputSchema_DirectiveResolution(t *testing.T) {
 	assertContains(t, output, `answer`)
 }
 
+func TestUnknownEntrypointError(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/unknown-entry",
+			Name:    "unknown-entry",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			Files: []generator.PromptFile{
+				{Name: "userPrompt", Content: "Hello", IsEntrypoint: true},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	// Per-prompt result class: explicit guard + branded KeyError, prompt name baked in.
+	assertContains(t, output, "template = self._templates.get(entrypoint)")
+	assertContains(t, output, `raise KeyError(f'[sufleur] Unknown entrypoint "{entrypoint}" for prompt "@test/unknown-entry"')`)
+
+	// Inner _PromptResult inside get_prompt: same guard, prompt_name from closure.
+	assertContains(t, output, "template = templates.get(entrypoint)")
+	assertContains(t, output, `raise KeyError(f'[sufleur] Unknown entrypoint "{entrypoint}" for prompt "{prompt_name}"')`)
+
+	// The old unchecked lookups are gone from both render bodies.
+	assertNotContains(t, output, "chevron.render(self._templates[entrypoint]")
+	assertNotContains(t, output, "chevron.render(templates[entrypoint]")
+}
+
 // Helpers
 
 func assertContains(t *testing.T, s, substr string) {
