@@ -476,53 +476,74 @@ interface PromptResult<N extends PromptName> {
 {{- if .AnyHasOutput}}
 export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> {
   if (_draftPrompts.has(promptName)) {
-    console.warn(` + "`" + `[sufleur] Warning: prompt "\${promptName}" is a draft version` + "`" + `);
+    console.warn(` + "`" + `[sufleur] Warning: prompt "${promptName}" is a draft version` + "`" + `);
   }
 
   const templates = _templates[promptName];
-  const partials = _partials[promptName] || {};
+  const partials = _partials[promptName] ?? {};
 
-  const result: any = {
-    render: (entrypoint: string, input?: any) =>
-      ({ prompt: Mustache.render(templates[entrypoint], input ?? {}, partials) }),
-    metadata: _metadata[promptName],
+  const render = <E extends keyof EntrypointMapping[N] & string>(
+    entrypoint: E,
+    ...input: EntrypointMapping[N][E] extends void ? [] : [EntrypointMapping[N][E]]
+  ): PromptOutput => {
+    const template = templates[entrypoint];
+    if (template === undefined) {
+      throw new Error(` + "`" + `[sufleur] Unknown entrypoint "${entrypoint}" for prompt "${promptName}"` + "`" + `);
+    }
+    return { prompt: Mustache.render(template, input[0] ?? {}, partials) };
   };
 
+  const metadata = _metadata[promptName];
   const schema = _outputSchemas[promptName];
+
   if (schema) {
-    result.parseOutput = (raw: string): ParseResult<any> => {
+    const parseOutput = (raw: string): ParseResult<OutputMapping[N]> => {
       let text = raw.trim();
       const fenceMatch = text.match(/^` + "```" + `(?:\w*)\s*\n?([\s\S]*?)\n?\s*` + "```" + `$/);
-      if (fenceMatch) text = fenceMatch[1].trim();
+      if (fenceMatch) {
+        const inner = fenceMatch[1];
+        if (inner === undefined) {
+          throw new Error("[sufleur] Code fence matched but capture group is missing");
+        }
+        text = inner.trim();
+      }
       try {
         const parsed = JSON.parse(text);
         const validated = schema.safeParse(parsed);
         if (validated.success) {
-          return { success: true, data: validated.data };
+          return { success: true, data: validated.data as OutputMapping[N] };
         }
         return { success: false, error: validated.error.message };
       } catch (e: unknown) {
         return { success: false, error: e instanceof Error ? e.message : String(e) };
       }
     };
+    return { render, metadata, parseOutput } as PromptResult<N>;
   }
 
-  return result as PromptResult<N>;
+  return { render, metadata } as PromptResult<N>;
 }
 {{- else}}
 export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> {
   if (_draftPrompts.has(promptName)) {
-    console.warn(` + "`" + `[sufleur] Warning: prompt "\${promptName}" is a draft version` + "`" + `);
+    console.warn(` + "`" + `[sufleur] Warning: prompt "${promptName}" is a draft version` + "`" + `);
   }
 
   const templates = _templates[promptName];
-  const partials = _partials[promptName] || {};
+  const partials = _partials[promptName] ?? {};
 
-  return {
-    render: ((entrypoint: string, input?: any) =>
-      ({ prompt: Mustache.render(templates[entrypoint], input ?? {}, partials) })) as any,
-    metadata: _metadata[promptName],
+  const render = <E extends keyof EntrypointMapping[N] & string>(
+    entrypoint: E,
+    ...input: EntrypointMapping[N][E] extends void ? [] : [EntrypointMapping[N][E]]
+  ): PromptOutput => {
+    const template = templates[entrypoint];
+    if (template === undefined) {
+      throw new Error(` + "`" + `[sufleur] Unknown entrypoint "${entrypoint}" for prompt "${promptName}"` + "`" + `);
+    }
+    return { prompt: Mustache.render(template, input[0] ?? {}, partials) };
   };
+
+  return { render, metadata: _metadata[promptName] };
 }
 {{- end}}
 `
