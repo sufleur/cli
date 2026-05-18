@@ -559,7 +559,10 @@ class _{{.PascalName}}Result:
 
     def render(self, entrypoint: str, input: Any = None) -> PromptOutput:
         """Render the named entrypoint template with the given input."""
-        return {"prompt": chevron.render(self._templates[entrypoint], input or {}, partials_dict=self._partials)}
+        template = self._templates.get(entrypoint)
+        if template is None:
+            raise KeyError(f'[sufleur] Unknown entrypoint "{entrypoint}" for prompt "{{.Name}}"')
+        return {"prompt": chevron.render(template, input or {}, partials_dict=self._partials)}
     {{- if .HasOutputSchema}}
 
     def parse_output(self, raw: str) -> _{{.PascalName}}ParseSuccess | ParseFailure:
@@ -604,7 +607,10 @@ def get_prompt(prompt_name: PromptName) -> Any:
             self.metadata = metadata
 
         def render(self, entrypoint: str, input: Any = None) -> PromptOutput:
-            return {"prompt": chevron.render(templates[entrypoint], input or {}, partials_dict=partials)}
+            template = templates.get(entrypoint)
+            if template is None:
+                raise KeyError(f'[sufleur] Unknown entrypoint "{entrypoint}" for prompt "{prompt_name}"')
+            return {"prompt": chevron.render(template, input or {}, partials_dict=partials)}
 {{- if .AnyHasOutput}}
 
         def parse_output(self, raw: str) -> dict[str, Any]:

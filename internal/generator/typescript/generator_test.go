@@ -607,7 +607,7 @@ func TestOutputSchema_SinglePrompt(t *testing.T) {
 	assertContains(t, output, "_outputSchemas")
 
 	// parseOutput implementation
-	assertContains(t, output, "result.parseOutput")
+	assertContains(t, output, "const parseOutput = (raw: string): ParseResult<OutputMapping[N]>")
 	assertContains(t, output, "schema.safeParse")
 }
 
@@ -746,6 +746,72 @@ func TestOutputSchema_DirectiveResolution(t *testing.T) {
 	assertNotContains(t, output, "{{@outputSchema}}")
 	assertContains(t, output, `"answer"`)
 	assertContains(t, output, `"type"`)
+}
+
+func TestStrictModeCompliance(t *testing.T) {
+	t.Run("with output schema branch", func(t *testing.T) {
+		prompts := []generator.PromptData{
+			{
+				Ref:     "@test/strict-with-output",
+				Name:    "strict-with-output",
+				Version: "1.0.0",
+				Status:  "PUBLISHED",
+				OutputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"value": map[string]interface{}{"type": "string"},
+					},
+					"required": []interface{}{"value"},
+				},
+				Files: []generator.PromptFile{
+					{Name: "userPrompt", Content: "Hello", IsEntrypoint: true},
+				},
+			},
+		}
+
+		output := generateAndRead(t, prompts)
+
+		// Runtime throws guard the previously-unchecked index accesses.
+		assertContains(t, output, "if (template === undefined)")
+		assertContains(t, output, "throw new Error(`[sufleur] Unknown entrypoint")
+		assertContains(t, output, "if (inner === undefined)")
+		assertContains(t, output, `throw new Error("[sufleur] Code fence matched but capture group is missing")`)
+
+		// Old `any`-based shape is gone.
+		assertNotContains(t, output, "const result: any")
+		assertNotContains(t, output, "as any")
+		assertNotContains(t, output, "input?: any")
+		assertNotContains(t, output, "ParseResult<any>")
+
+		// Typed inner render and parseOutput take the place of the old result-cast pattern.
+		assertContains(t, output, "const render = <E extends keyof EntrypointMapping[N] & string>")
+		assertContains(t, output, "const parseOutput = (raw: string): ParseResult<OutputMapping[N]>")
+	})
+
+	t.Run("no output schema branch", func(t *testing.T) {
+		prompts := []generator.PromptData{
+			{
+				Ref:     "@test/strict-no-output",
+				Name:    "strict-no-output",
+				Version: "1.0.0",
+				Status:  "PUBLISHED",
+				Files: []generator.PromptFile{
+					{Name: "userPrompt", Content: "Hello", IsEntrypoint: true},
+				},
+			},
+		}
+
+		output := generateAndRead(t, prompts)
+
+		// Throw guard still present in the no-output branch.
+		assertContains(t, output, "if (template === undefined)")
+		assertContains(t, output, "throw new Error(`[sufleur] Unknown entrypoint")
+
+		// No-output branch must not contain `any`-shaped fallbacks.
+		assertNotContains(t, output, "as any")
+		assertNotContains(t, output, "input?: any")
+		assertNotContains(t, output, "parseOutput")
+	})
 }
 
 // Helpers
