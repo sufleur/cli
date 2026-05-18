@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sufleur/cli/internal/generator"
+	"github.com/sufleur/cli/internal/generator/parser"
 )
 
 func generateAndRead(t *testing.T, prompts []generator.PromptData) string {
@@ -771,11 +772,12 @@ func TestStrictModeCompliance(t *testing.T) {
 
 		output := generateAndRead(t, prompts)
 
-		// Runtime throws guard the previously-unchecked index accesses.
+		// Runtime throw guards the unknown-entrypoint case.
 		assertContains(t, output, "if (template === undefined)")
 		assertContains(t, output, "throw new Error(`[sufleur] Unknown entrypoint")
-		assertContains(t, output, "if (inner === undefined)")
-		assertContains(t, output, `throw new Error("[sufleur] Code fence matched but capture group is missing")`)
+
+		// The output parser routes fence-extraction failures through the `code`
+		// discriminator instead of throwing (see TestParseOutputResilience).
 
 		// Old `any`-based shape is gone.
 		assertNotContains(t, output, "const result: any")
@@ -812,6 +814,51 @@ func TestStrictModeCompliance(t *testing.T) {
 		assertNotContains(t, output, "input?: any")
 		assertNotContains(t, output, "parseOutput")
 	})
+}
+
+func TestParseOutputResilience(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/parse-resilience",
+			Name:    "parse-resilience",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			OutputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"value": map[string]interface{}{"type": "string"},
+				},
+				"required": []interface{}{"value"},
+			},
+			Files: []generator.PromptFile{
+				{Name: "userPrompt", Content: "Hello", IsEntrypoint: true},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	// Old anchored regex is gone, new unanchored form is present.
+	assertNotContains(t, output, "/^`")
+	assertNotContains(t, output, "`$/")
+	assertContains(t, output, "const _fenceRe = /"+parser.FencePattern+"/g")
+
+	// Pattern-emission: the Go const value appears verbatim in the output.
+	assertContains(t, output, parser.FencePattern)
+
+	// Helpers are emitted at module scope (under the AnyHasOutput gate).
+	assertContains(t, output, "const _extractBalancedBraces = (s: string): string | null =>")
+	assertContains(t, output, "const _extractJsonCandidate = (raw: string): { text: string; foundFence: boolean } =>")
+
+	// ParseResult union carries the `code` discriminator.
+	assertContains(t, output, "code: 'fence-extraction' | 'json-parse' | 'schema-validation'")
+
+	// All three code literals appear at the call site in parseOutput.
+	assertContains(t, output, "candidate.foundFence ? 'fence-extraction' : 'json-parse'")
+	assertContains(t, output, "code: 'schema-validation'")
+
+	// parseOutput uses the new helper, not the old inline regex.
+	assertContains(t, output, "const candidate = _extractJsonCandidate(raw)")
 }
 
 // Helpers

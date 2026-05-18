@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sufleur/cli/internal/generator"
+	"github.com/sufleur/cli/internal/generator/parser"
 )
 
 func init() {
@@ -71,6 +72,7 @@ type templateContext struct {
 	Timestamp    string
 	Prompts      []promptTemplateData
 	AnyHasOutput bool
+	FencePattern string
 }
 
 func (g *Generator) Generate(outFile string, prompts []generator.PromptData) error {
@@ -194,6 +196,7 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 		Timestamp:    time.Now().UTC().Format(time.RFC3339),
 		Prompts:      tds,
 		AnyHasOutput: anyHasOutput,
+		FencePattern: parser.FencePattern,
 	}
 }
 
@@ -469,6 +472,7 @@ class _{{.PascalName}}ParseSuccess(TypedDict):
 
 class ParseFailure(TypedDict):
     error: str
+    code: Literal["fence-extraction", "json-parse", "schema-validation"]
     success: Literal[False]
 
 {{end -}}
@@ -524,6 +528,59 @@ _output_models: dict[str, type[BaseModel]] = {
 {{- end}}
 {{- end}}
 }
+
+
+_fence_re = re.compile(r"{{.FencePattern}}")
+
+
+def _extract_balanced_braces(s: str) -> str | None:
+    obj_start = s.find("{")
+    arr_start = s.find("[")
+    if obj_start == -1 and arr_start == -1:
+        return None
+    if obj_start != -1 and (arr_start == -1 or obj_start < arr_start):
+        start, opener, closer = obj_start, "{", "}"
+    else:
+        start, opener, closer = arr_start, "[", "]"
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(s)):
+        c = s[i]
+        if escape:
+            escape = False
+            continue
+        if in_string and c == "\\":
+            escape = True
+            continue
+        if c == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if c == opener:
+            depth += 1
+        elif c == closer:
+            depth -= 1
+            if depth == 0:
+                return s[start:i + 1]
+    return None
+
+
+def _extract_json_candidate(raw: str) -> tuple[str, bool]:
+    """Best-effort JSON extraction. Returns (candidate_text, found_fence)."""
+    trimmed = raw.strip()
+    fences = [
+        (m.group(1).lower(), m.group(2).strip())
+        for m in _fence_re.finditer(trimmed)
+    ]
+    if fences:
+        json_fence = next((body for lang, body in fences if lang == "json"), None)
+        return (json_fence if json_fence is not None else fences[0][1], True)
+    bare = _extract_balanced_braces(trimmed)
+    if bare is not None:
+        return (bare, False)
+    return (trimmed, False)
 {{- end}}
 
 # ─── Draft Prompts ────────────────────────────────────────────────────────────
@@ -567,16 +624,17 @@ class _{{.PascalName}}Result:
 
     def parse_output(self, raw: str) -> _{{.PascalName}}ParseSuccess | ParseFailure:
         """Parse and validate LLM output against the output schema."""
-        text = raw.strip()
-        fence_match = re.match(r"^` + "```" + `(?:\\w*)\\s*\\n?([\\s\\S]*?)\\n?\\s*` + "```" + `$", text)
-        if fence_match:
-            text = fence_match.group(1).strip()
+        candidate, found_fence = _extract_json_candidate(raw)
         try:
-            parsed = json.loads(text)
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError as e:
+            code = "fence-extraction" if found_fence else "json-parse"
+            return {"error": str(e), "code": code, "success": False}
+        try:
             validated = {{.OutputClassName}}.model_validate(parsed)
-            return {"data": validated, "success": True}
-        except (json.JSONDecodeError, ValidationError) as e:
-            return {"error": str(e), "success": False}
+        except ValidationError as e:
+            return {"error": str(e), "code": "schema-validation", "success": False}
+        return {"data": validated, "success": True}
     {{- end}}
 {{end}}
 
@@ -616,17 +674,18 @@ def get_prompt(prompt_name: PromptName) -> Any:
         def parse_output(self, raw: str) -> dict[str, Any]:
             model = _output_models.get(prompt_name)
             if model is None:
-                return {"error": f"No output schema for prompt \"{prompt_name}\"", "success": False}
-            text = raw.strip()
-            fence_match = re.match(r"^` + "```" + `(?:\\w*)\\s*\\n?([\\s\\S]*?)\\n?\\s*` + "```" + `$", text)
-            if fence_match:
-                text = fence_match.group(1).strip()
+                return {"error": f"No output schema for prompt \"{prompt_name}\"", "code": "schema-validation", "success": False}
+            candidate, found_fence = _extract_json_candidate(raw)
             try:
-                parsed = json.loads(text)
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError as e:
+                code = "fence-extraction" if found_fence else "json-parse"
+                return {"error": str(e), "code": code, "success": False}
+            try:
                 validated = model.model_validate(parsed)
-                return {"data": validated, "success": True}
-            except (json.JSONDecodeError, ValidationError) as e:
-                return {"error": str(e), "success": False}
+            except ValidationError as e:
+                return {"error": str(e), "code": "schema-validation", "success": False}
+            return {"data": validated, "success": True}
 {{- end}}
 
     return _PromptResult()

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sufleur/cli/internal/generator"
+	"github.com/sufleur/cli/internal/generator/parser"
 )
 
 func init() {
@@ -54,6 +55,7 @@ type templateContext struct {
 	Timestamp    string
 	Prompts      []promptTemplateData
 	AnyHasOutput bool
+	FencePattern string
 }
 
 func (g *Generator) Generate(outFile string, prompts []generator.PromptData) error {
@@ -159,6 +161,7 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 		Timestamp:    time.Now().UTC().Format(time.RFC3339),
 		Prompts:      tds,
 		AnyHasOutput: anyHasOutput,
+		FencePattern: parser.FencePattern,
 	}
 }
 
@@ -353,7 +356,9 @@ export const {{.PascalName}}OutputSchema = {{.OutputSchemaZod}};
 export type {{.PascalName}}Output = z.infer<typeof {{.PascalName}}OutputSchema>;
 {{end}}
 {{- end}}
-export type ParseResult<T> = { success: true; data: T } | { success: false; error: string };
+export type ParseResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: string; code: 'fence-extraction' | 'json-parse' | 'schema-validation' };
 
 export interface OutputMapping {
 {{- range .Prompts}}
@@ -431,6 +436,57 @@ const _outputSchemas: Partial<Record<PromptName, z.ZodType>> = {
 {{- end}}
 {{- end}}
 };
+
+const _fenceRe = /{{.FencePattern}}/g;
+
+const _extractBalancedBraces = (s: string): string | null => {
+  const objStart = s.indexOf('{');
+  const arrStart = s.indexOf('[');
+  let start = -1;
+  let opener = '';
+  let closer = '';
+  if (objStart !== -1 && (arrStart === -1 || objStart < arrStart)) {
+    start = objStart; opener = '{'; closer = '}';
+  } else if (arrStart !== -1) {
+    start = arrStart; opener = '['; closer = ']';
+  } else {
+    return null;
+  }
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s.charAt(i);
+    if (escape) { escape = false; continue; }
+    if (inString && c === '\\') { escape = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (c === opener) depth++;
+    else if (c === closer) {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
+};
+
+const _extractJsonCandidate = (raw: string): { text: string; foundFence: boolean } => {
+  const trimmed = raw.trim();
+  const fences: Array<{ lang: string; body: string }> = [];
+  _fenceRe.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = _fenceRe.exec(trimmed)) !== null) {
+    fences.push({ lang: (m[1] ?? '').toLowerCase(), body: (m[2] ?? '').trim() });
+  }
+  if (fences.length > 0) {
+    const jsonFence = fences.find(f => f.lang === 'json');
+    const chosen = jsonFence ?? fences[0]!;
+    return { text: chosen.body, foundFence: true };
+  }
+  const bare = _extractBalancedBraces(trimmed);
+  if (bare !== null) return { text: bare, foundFence: false };
+  return { text: trimmed, foundFence: false };
+};
 {{- end}}
 
 // ─── Draft Prompts ────────────────────────────────────────────────────────────
@@ -498,25 +554,23 @@ export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> 
 
   if (schema) {
     const parseOutput = (raw: string): ParseResult<OutputMapping[N]> => {
-      let text = raw.trim();
-      const fenceMatch = text.match(/^` + "```" + `(?:\w*)\s*\n?([\s\S]*?)\n?\s*` + "```" + `$/);
-      if (fenceMatch) {
-        const inner = fenceMatch[1];
-        if (inner === undefined) {
-          throw new Error("[sufleur] Code fence matched but capture group is missing");
-        }
-        text = inner.trim();
-      }
+      const candidate = _extractJsonCandidate(raw);
+      let parsed: unknown;
       try {
-        const parsed = JSON.parse(text);
-        const validated = schema.safeParse(parsed);
-        if (validated.success) {
-          return { success: true, data: validated.data as OutputMapping[N] };
-        }
-        return { success: false, error: validated.error.message };
+        parsed = JSON.parse(candidate.text);
       } catch (e: unknown) {
-        return { success: false, error: e instanceof Error ? e.message : String(e) };
+        const message = e instanceof Error ? e.message : String(e);
+        return {
+          success: false,
+          error: message,
+          code: candidate.foundFence ? 'fence-extraction' : 'json-parse',
+        };
       }
+      const validated = schema.safeParse(parsed);
+      if (validated.success) {
+        return { success: true, data: validated.data as OutputMapping[N] };
+      }
+      return { success: false, error: validated.error.message, code: 'schema-validation' };
     };
     return { render, metadata, parseOutput } as PromptResult<N>;
   }

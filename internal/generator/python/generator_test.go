@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sufleur/cli/internal/generator"
+	"github.com/sufleur/cli/internal/generator/parser"
 )
 
 func generateAndRead(t *testing.T, prompts []generator.PromptData) string {
@@ -957,6 +958,55 @@ func TestUnknownEntrypointError(t *testing.T) {
 	// The old unchecked lookups are gone from both render bodies.
 	assertNotContains(t, output, "chevron.render(self._templates[entrypoint]")
 	assertNotContains(t, output, "chevron.render(templates[entrypoint]")
+}
+
+func TestParseOutputResilience(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/parse-resilience",
+			Name:    "parse-resilience",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			OutputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"value": map[string]interface{}{"type": "string"},
+				},
+				"required": []interface{}{"value"},
+			},
+			Files: []generator.PromptFile{
+				{Name: "userPrompt", Content: "Hello", IsEntrypoint: true},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	// Old anchored regex is gone.
+	assertNotContains(t, output, `re.match(r"^`+"```")
+	assertNotContains(t, output, "`$\"")
+
+	// New compiled pattern is emitted via parser.FencePattern, in raw-string form.
+	assertContains(t, output, `_fence_re = re.compile(r"`+parser.FencePattern+`")`)
+
+	// Pattern-emission: the Go const value appears verbatim.
+	assertContains(t, output, parser.FencePattern)
+
+	// Module-level helpers exist.
+	assertContains(t, output, "def _extract_balanced_braces(s: str) -> str | None:")
+	assertContains(t, output, "def _extract_json_candidate(raw: str) -> tuple[str, bool]:")
+
+	// ParseFailure carries the `code` discriminator.
+	assertContains(t, output, `code: Literal["fence-extraction", "json-parse", "schema-validation"]`)
+
+	// All three code literals appear in the parse_output bodies.
+	assertContains(t, output, `code = "fence-extraction" if found_fence else "json-parse"`)
+	assertContains(t, output, `"code": "schema-validation"`)
+
+	// Both parse_output surfaces use the helper.
+	if strings.Count(output, "candidate, found_fence = _extract_json_candidate(raw)") < 2 {
+		t.Errorf("expected `_extract_json_candidate(raw)` to be called in both per-prompt and inner _PromptResult surfaces; got %d call sites", strings.Count(output, "candidate, found_fence = _extract_json_candidate(raw)"))
+	}
 }
 
 // Helpers
