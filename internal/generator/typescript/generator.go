@@ -221,8 +221,15 @@ func extractMetadataValues(m map[string]interface{}) map[string]interface{} {
 
 // schemaToTSType converts a JSON Schema node to a TypeScript type string.
 // The backend serves standard JSON Schema for both input and output schemas
-// (type/properties/items/required), so we read `type` here.
+// (type/properties/items/required), so we read `type` here. Input schemas may
+// also carry `oneOf`/`anyOf` for union types — handle those before the switch.
 func schemaToTSType(schema map[string]interface{}, indent int) string {
+	if v, ok := schema["oneOf"]; ok {
+		return unionToTSType(v, indent)
+	}
+	if v, ok := schema["anyOf"]; ok {
+		return unionToTSType(v, indent)
+	}
 	t, _ := schema["type"].(string)
 	switch t {
 	case "string":
@@ -273,10 +280,23 @@ func objectToTS(schema map[string]interface{}, indent int) string {
 			b.WriteString(" */\n")
 		}
 
+		optional, _ := v["optional"].(bool)
 		b.WriteString(innerIndent)
 		b.WriteString(k)
-		b.WriteString(": ")
-		b.WriteString(schemaToTSType(v, indent+1))
+		if optional {
+			b.WriteString("?: ")
+		} else {
+			b.WriteString(": ")
+		}
+		inner := schemaToTSType(v, indent+1)
+		b.WriteString(inner)
+		// Accept null-shaped caller data (DB rows, API responses) without forcing
+		// `?? undefined` at the call site. Mustache treats null and undefined
+		// identically as falsy, so the runtime is unaffected. Skip when the inner
+		// type already accepts null (unknown, or a union that includes null).
+		if optional && inner != "unknown" && !strings.Contains(inner, "null") {
+			b.WriteString(" | null")
+		}
 		b.WriteString(";\n")
 	}
 
@@ -296,6 +316,48 @@ func arrayToTS(schema map[string]interface{}, indent int) string {
 		return "(" + ts + ")[]"
 	}
 	return ts + "[]"
+}
+
+// unionToTSType emits a TypeScript union from a JSON Schema oneOf/anyOf array.
+// Mirrors anyOfToZod: a {type:"null"} variant becomes a trailing ` | null`.
+func unionToTSType(union interface{}, indent int) string {
+	variants, ok := union.([]interface{})
+	if !ok || len(variants) == 0 {
+		return "unknown"
+	}
+
+	var nonNull []map[string]interface{}
+	hasNull := false
+	for _, v := range variants {
+		m, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t, _ := m["type"].(string); t == "null" {
+			hasNull = true
+		} else {
+			nonNull = append(nonNull, m)
+		}
+	}
+
+	var base string
+	switch len(nonNull) {
+	case 0:
+		return "unknown"
+	case 1:
+		base = schemaToTSType(nonNull[0], indent)
+	default:
+		parts := make([]string, len(nonNull))
+		for i, s := range nonNull {
+			parts[i] = schemaToTSType(s, indent)
+		}
+		base = strings.Join(parts, " | ")
+	}
+
+	if hasNull {
+		return base + " | null"
+	}
+	return base
 }
 
 // tsMetadataValue formats a Go value as a TypeScript literal.

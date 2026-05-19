@@ -69,10 +69,19 @@ type partialData struct {
 }
 
 type templateContext struct {
-	Timestamp    string
-	Prompts      []promptTemplateData
-	AnyHasOutput bool
-	FencePattern string
+	Timestamp      string
+	Prompts        []promptTemplateData
+	AnyHasOutput   bool
+	AnyHasOptional bool
+	AnyHasUnion    bool
+	FencePattern   string
+}
+
+// inputAnalysis is accumulated during input-schema traversal so the template
+// knows which extra imports to emit (NotRequired, Optional, Union).
+type inputAnalysis struct {
+	HasOptional bool
+	HasUnion    bool
 }
 
 func (g *Generator) Generate(outFile string, prompts []generator.PromptData) error {
@@ -119,6 +128,7 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 
 	var tds []promptTemplateData
 	anyHasOutput := false
+	anyAnalysis := inputAnalysis{}
 	for _, p := range prompts {
 		dn := displayName(p)
 		td := promptTemplateData{
@@ -141,7 +151,7 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 				}
 				if f.InputSchema != nil {
 					var classes []typedDictClass
-					typeName := collectTypedDicts(f.InputSchema, td.PascalName+"_"+toPascalCase(f.Name)+"Input", &classes, true)
+					typeName := collectTypedDicts(f.InputSchema, td.PascalName+"_"+toPascalCase(f.Name)+"Input", &classes, true, &anyAnalysis)
 					ep.HasInput = true
 					ep.InputTypeName = typeName
 					td.TypedDicts = append(td.TypedDicts, classes...)
@@ -193,17 +203,29 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 	}
 
 	return templateContext{
-		Timestamp:    time.Now().UTC().Format(time.RFC3339),
-		Prompts:      tds,
-		AnyHasOutput: anyHasOutput,
-		FencePattern: parser.FencePattern,
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		Prompts:        tds,
+		AnyHasOutput:   anyHasOutput,
+		AnyHasOptional: anyAnalysis.HasOptional,
+		AnyHasUnion:    anyAnalysis.HasUnion,
+		FencePattern:   parser.FencePattern,
 	}
 }
 
 // collectTypedDicts recursively walks a JSON Schema and emits TypedDict classes.
 // It returns the Python type string for this schema node. The backend serves
-// standard JSON Schema (type/properties/items), so we read `type` here.
-func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes *[]typedDictClass, isTopLevel bool) string {
+// standard JSON Schema (type/properties/items), so we read `type` here. Input
+// schemas may also carry `oneOf`/`anyOf` (union types) and `optional: true` on
+// properties; both are handled here. `analysis` is updated to record which
+// extra imports the generated file needs.
+func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes *[]typedDictClass, isTopLevel bool, analysis *inputAnalysis) string {
+	if v, ok := schema["oneOf"]; ok {
+		return unionToPythonType(v, namePrefix, classes, analysis)
+	}
+	if v, ok := schema["anyOf"]; ok {
+		return unionToPythonType(v, namePrefix, classes, analysis)
+	}
+
 	t, _ := schema["type"].(string)
 
 	switch t {
@@ -222,7 +244,7 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 		if !ok {
 			return "list[Any]"
 		}
-		inner := collectTypedDicts(items, namePrefix, classes, false)
+		inner := collectTypedDicts(items, namePrefix, classes, false, analysis)
 		return "list[" + inner + "]"
 	case "object":
 		props, ok := schema["properties"].(map[string]interface{})
@@ -252,7 +274,19 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 			}
 			// Child name prefix never includes _; that gets added by the recursive call.
 			childName := namePrefix + "_" + toPascalCase(k)
-			fieldType := collectTypedDicts(v, childName, classes, false)
+			fieldType := collectTypedDicts(v, childName, classes, false, analysis)
+			if optional, _ := v["optional"].(bool); optional {
+				// Accept None-shaped caller data (DBs, APIs) without forcing
+				// callers to coerce. mustache treats None as falsy, so runtime
+				// is unaffected. Skip the Optional[] wrap when the inner type
+				// already accepts None (Any, or already-Optional via a oneOf
+				// with a null variant).
+				if fieldType != "Any" && !strings.HasPrefix(fieldType, "Optional[") {
+					fieldType = "Optional[" + fieldType + "]"
+				}
+				fieldType = "NotRequired[" + fieldType + "]"
+				analysis.HasOptional = true
+			}
 			desc, _ := v["description"].(string)
 			fields = append(fields, typedDictField{
 				Name:        k,
@@ -270,6 +304,52 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 	}
 	// Empty schema or untyped property — treat as opaque.
 	return "Any"
+}
+
+// unionToPythonType emits a Python Union from a JSON Schema oneOf/anyOf array.
+// Mirrors anyOfToPydantic: a {type:"null"} variant becomes a wrapping Optional[].
+func unionToPythonType(union interface{}, namePrefix string, classes *[]typedDictClass, analysis *inputAnalysis) string {
+	variants, ok := union.([]interface{})
+	if !ok || len(variants) == 0 {
+		return "Any"
+	}
+
+	var nonNull []map[string]interface{}
+	hasNull := false
+	for _, v := range variants {
+		m, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t, _ := m["type"].(string); t == "null" {
+			hasNull = true
+		} else {
+			nonNull = append(nonNull, m)
+		}
+	}
+
+	var base string
+	switch len(nonNull) {
+	case 0:
+		return "Any"
+	case 1:
+		base = collectTypedDicts(nonNull[0], namePrefix, classes, false, analysis)
+	default:
+		parts := make([]string, len(nonNull))
+		for i, s := range nonNull {
+			// Each object variant gets its own class name suffix so nested
+			// TypedDicts don't collide.
+			parts[i] = collectTypedDicts(s, namePrefix+"_Variant"+fmt.Sprintf("%d", i+1), classes, false, analysis)
+		}
+		base = "Union[" + strings.Join(parts, ", ") + "]"
+		analysis.HasUnion = true
+	}
+
+	if hasNull {
+		analysis.HasUnion = true
+		return "Optional[" + base + "]"
+	}
+	return base
 }
 
 // toPascalCase converts kebab-case, snake_case, or @workspace/name to PascalCase.
@@ -429,7 +509,10 @@ var pythonTemplate = `# ⚠️ AUTO-GENERATED by Sufleur CLI — do not edit man
 from __future__ import annotations
 
 import warnings
-from typing import Any, Literal, TypedDict, overload{{if .AnyHasOutput}}, Optional, Union{{end}}
+from typing import Any, Literal, TypedDict, overload{{if or .AnyHasOutput .AnyHasUnion .AnyHasOptional}}, Optional, Union{{end}}
+{{- if .AnyHasOptional}}
+from typing_extensions import NotRequired
+{{- end}}
 
 import chevron
 {{- if .AnyHasOutput}}

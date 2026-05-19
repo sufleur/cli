@@ -332,12 +332,33 @@ func TestSchemaTypeMappings(t *testing.T) {
 			},
 			expected: "list[str]",
 		},
+		{
+			name: "oneOf string-or-number",
+			schema: map[string]interface{}{
+				"oneOf": []interface{}{
+					map[string]interface{}{"type": "string"},
+					map[string]interface{}{"type": "number"},
+				},
+			},
+			expected: "Union[str, float]",
+		},
+		{
+			name: "anyOf with null variant",
+			schema: map[string]interface{}{
+				"anyOf": []interface{}{
+					map[string]interface{}{"type": "string"},
+					map[string]interface{}{"type": "null"},
+				},
+			},
+			expected: "Optional[str]",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var classes []typedDictClass
-			result := collectTypedDicts(tt.schema, "Test", &classes, false)
+			analysis := inputAnalysis{}
+			result := collectTypedDicts(tt.schema, "Test", &classes, false, &analysis)
 			if result != tt.expected {
 				t.Errorf("collectTypedDicts() = %q, want %q", result, tt.expected)
 			}
@@ -1007,6 +1028,244 @@ func TestParseOutputResilience(t *testing.T) {
 	if strings.Count(output, "candidate, found_fence = _extract_json_candidate(raw)") < 2 {
 		t.Errorf("expected `_extract_json_candidate(raw)` to be called in both per-prompt and inner _PromptResult surfaces; got %d call sites", strings.Count(output, "candidate, found_fence = _extract_json_candidate(raw)"))
 	}
+}
+
+func TestOptionalFields(t *testing.T) {
+	tests := []struct {
+		name     string
+		schema   map[string]interface{}
+		expected []string // field-line substrings that must all appear
+		notWant  []string
+	}{
+		{
+			name: "optional scalar wraps in NotRequired[Optional[...]]",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{"type": "string", "optional": true},
+				},
+			},
+			expected: []string{"name: NotRequired[Optional[str]]"},
+		},
+		{
+			name: "optional untyped wraps NotRequired[Any] (no redundant Optional)",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"dueAt": map[string]interface{}{"optional": true},
+				},
+			},
+			expected: []string{"dueAt: NotRequired[Any]"},
+			notWant:  []string{"Optional[Any]"},
+		},
+		{
+			name: "optional array",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"items": map[string]interface{}{
+						"type":     "array",
+						"items":    map[string]interface{}{"type": "string"},
+						"optional": true,
+					},
+				},
+			},
+			expected: []string{"items: NotRequired[Optional[list[str]]]"},
+		},
+		{
+			name: "optional nested object",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"user": map[string]interface{}{
+						"type":     "object",
+						"optional": true,
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{"type": "string"},
+						},
+					},
+				},
+			},
+			// Nested-object class name is derived from the entrypoint prefix
+			// (e.g. `_TestTest_UserPromptInput_User`); assert the user-facing
+			// shape rather than the exact prefix.
+			expected: []string{"user: NotRequired[Optional[_", "_User]]"},
+		},
+		{
+			name: "mixed required + optional (spec worked example)",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name":     map[string]interface{}{"type": "string"},
+					"dueAt":    map[string]interface{}{"optional": true},
+					"priority": map[string]interface{}{"type": "string", "optional": true},
+					"items": map[string]interface{}{
+						"type":  "array",
+						"items": map[string]interface{}{"type": "string"},
+					},
+				},
+			},
+			expected: []string{
+				"name: str",
+				"dueAt: NotRequired[Any]",
+				"priority: NotRequired[Optional[str]]",
+				"items: list[str]",
+			},
+		},
+		{
+			name: "optional oneOf",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"x": map[string]interface{}{
+						"oneOf": []interface{}{
+							map[string]interface{}{"type": "string"},
+							map[string]interface{}{"type": "number"},
+						},
+						"optional": true,
+					},
+				},
+			},
+			expected: []string{"x: NotRequired[Optional[Union[str, float]]]"},
+		},
+		{
+			name: "optional oneOf-with-null does not double-wrap Optional",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"x": map[string]interface{}{
+						"oneOf": []interface{}{
+							map[string]interface{}{"type": "string"},
+							map[string]interface{}{"type": "null"},
+						},
+						"optional": true,
+					},
+				},
+			},
+			expected: []string{"x: NotRequired[Optional[str]]"},
+			notWant:  []string{"Optional[Optional[", "Optional[str]]]]"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prompts := []generator.PromptData{
+				{
+					Ref:     "@test/test",
+					Name:    "test",
+					Version: "1.0.0",
+					Status:  "PUBLISHED",
+					Files: []generator.PromptFile{
+						{
+							Name:         "userPrompt",
+							Content:      "Hello",
+							IsEntrypoint: true,
+							InputSchema:  tt.schema,
+						},
+					},
+				},
+			}
+			output := generateAndRead(t, prompts)
+			for _, want := range tt.expected {
+				if !strings.Contains(output, want) {
+					t.Errorf("output does not contain %q", want)
+				}
+			}
+			for _, dontWant := range tt.notWant {
+				if strings.Contains(output, dontWant) {
+					t.Errorf("output unexpectedly contains %q", dontWant)
+				}
+			}
+		})
+	}
+}
+
+func TestOptionalImportGate(t *testing.T) {
+	t.Run("no optional, no oneOf → typing_extensions not imported", func(t *testing.T) {
+		prompts := []generator.PromptData{
+			{
+				Ref:     "@test/plain",
+				Name:    "plain",
+				Version: "1.0.0",
+				Status:  "PUBLISHED",
+				Files: []generator.PromptFile{
+					{
+						Name:         "userPrompt",
+						Content:      "Hi {{name}}",
+						IsEntrypoint: true,
+						InputSchema: map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"name": map[string]interface{}{"type": "string"},
+							},
+						},
+					},
+				},
+			},
+		}
+		output := generateAndRead(t, prompts)
+		assertNotContains(t, output, "from typing_extensions import NotRequired")
+		assertNotContains(t, output, "Optional, Union")
+	})
+
+	t.Run("optional only → typing_extensions imported and Optional, Union pulled in", func(t *testing.T) {
+		prompts := []generator.PromptData{
+			{
+				Ref:     "@test/opt",
+				Name:    "opt",
+				Version: "1.0.0",
+				Status:  "PUBLISHED",
+				Files: []generator.PromptFile{
+					{
+						Name:         "userPrompt",
+						Content:      "Hi",
+						IsEntrypoint: true,
+						InputSchema: map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"name": map[string]interface{}{"type": "string", "optional": true},
+							},
+						},
+					},
+				},
+			},
+		}
+		output := generateAndRead(t, prompts)
+		assertContains(t, output, "from typing_extensions import NotRequired")
+		assertContains(t, output, "Optional, Union")
+	})
+
+	t.Run("oneOf only (no output schema) → Optional, Union imported but NotRequired absent", func(t *testing.T) {
+		prompts := []generator.PromptData{
+			{
+				Ref:     "@test/union",
+				Name:    "union",
+				Version: "1.0.0",
+				Status:  "PUBLISHED",
+				Files: []generator.PromptFile{
+					{
+						Name:         "userPrompt",
+						Content:      "Hi",
+						IsEntrypoint: true,
+						InputSchema: map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"x": map[string]interface{}{
+									"oneOf": []interface{}{
+										map[string]interface{}{"type": "string"},
+										map[string]interface{}{"type": "number"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		output := generateAndRead(t, prompts)
+		assertContains(t, output, "Optional, Union")
+		assertNotContains(t, output, "from typing_extensions import NotRequired")
+	})
 }
 
 // Helpers
