@@ -29,7 +29,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-generated = ["chevron", "pydantic"]
+generated = ["chevron", "pydantic", "typing_extensions>=4.0"]
 
 [project.urls]
 Homepage = "https://github.com/sufleur/cli"

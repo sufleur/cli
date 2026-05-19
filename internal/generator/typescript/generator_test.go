@@ -344,6 +344,26 @@ func TestSchemaTypeMappings(t *testing.T) {
 			},
 			expected: "inner: {\n",
 		},
+		{
+			name: "oneOf string-or-number",
+			schema: map[string]interface{}{
+				"oneOf": []interface{}{
+					map[string]interface{}{"type": "string"},
+					map[string]interface{}{"type": "number"},
+				},
+			},
+			expected: "string | number",
+		},
+		{
+			name: "anyOf with null variant",
+			schema: map[string]interface{}{
+				"anyOf": []interface{}{
+					map[string]interface{}{"type": "string"},
+					map[string]interface{}{"type": "null"},
+				},
+			},
+			expected: "string | null",
+		},
 	}
 
 	for _, tt := range tests {
@@ -859,6 +879,137 @@ func TestParseOutputResilience(t *testing.T) {
 
 	// parseOutput uses the new helper, not the old inline regex.
 	assertContains(t, output, "const candidate = _extractJsonCandidate(raw)")
+}
+
+func TestOptionalFields(t *testing.T) {
+	tests := []struct {
+		name     string
+		schema   map[string]interface{}
+		expected []string // all must appear
+		notWant  []string // none may appear
+	}{
+		{
+			name: "optional scalar gets `?: T | null`",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{"type": "string", "optional": true},
+				},
+			},
+			expected: []string{"name?: string | null;"},
+		},
+		{
+			name: "optional untyped emits unknown without redundant null",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"dueAt": map[string]interface{}{"optional": true},
+				},
+			},
+			expected: []string{"dueAt?: unknown;"},
+			notWant:  []string{"unknown | null"},
+		},
+		{
+			name: "optional array gets `?: T[] | null`",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"items": map[string]interface{}{
+						"type":     "array",
+						"items":    map[string]interface{}{"type": "string"},
+						"optional": true,
+					},
+				},
+			},
+			expected: []string{"items?: string[] | null;"},
+		},
+		{
+			name: "optional nested object",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"user": map[string]interface{}{
+						"type":     "object",
+						"optional": true,
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{"type": "string"},
+						},
+					},
+				},
+			},
+			expected: []string{"user?: {", "} | null;"},
+		},
+		{
+			name: "mixed required + optional (spec worked example)",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name":     map[string]interface{}{"type": "string"},
+					"dueAt":    map[string]interface{}{"optional": true},
+					"priority": map[string]interface{}{"type": "string", "optional": true},
+					"items": map[string]interface{}{
+						"type":  "array",
+						"items": map[string]interface{}{"type": "string"},
+					},
+				},
+			},
+			expected: []string{
+				"name: string;",
+				"dueAt?: unknown;",
+				"priority?: string | null;",
+				"items: string[];",
+			},
+		},
+		{
+			name: "optional oneOf appends single null",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"x": map[string]interface{}{
+						"oneOf": []interface{}{
+							map[string]interface{}{"type": "string"},
+							map[string]interface{}{"type": "number"},
+						},
+						"optional": true,
+					},
+				},
+			},
+			expected: []string{"x?: string | number | null;"},
+		},
+		{
+			name: "optional oneOf-with-null does not double up null",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"x": map[string]interface{}{
+						"oneOf": []interface{}{
+							map[string]interface{}{"type": "string"},
+							map[string]interface{}{"type": "null"},
+						},
+						"optional": true,
+					},
+				},
+			},
+			expected: []string{"x?: string | null;"},
+			notWant:  []string{"null | null"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := schemaToTSType(tt.schema, 0)
+			for _, want := range tt.expected {
+				if !strings.Contains(result, want) {
+					t.Errorf("output does not contain %q\ngot:\n%s", want, result)
+				}
+			}
+			for _, dontWant := range tt.notWant {
+				if strings.Contains(result, dontWant) {
+					t.Errorf("output unexpectedly contains %q\ngot:\n%s", dontWant, result)
+				}
+			}
+		})
+	}
 }
 
 // Helpers
