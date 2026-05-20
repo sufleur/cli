@@ -18,7 +18,7 @@ clean:
 # Bumps wrapper versions, commits, tags, and pushes. The tag push triggers
 # .github/workflows/release.yml, which builds binaries with goreleaser, builds
 # the per-platform wheels, and publishes to PyPI (Trusted Publishing) + npm
-# (NPM_TOKEN). For a TestPyPI rehearsal, run the release-dry.yml workflow
+# (Trusted Publishing). For a TestPyPI rehearsal, run the release-dry.yml workflow
 # manually from the Actions tab.
 release:
 	@if [ -z "$(VERSION)" ] || [ "$(VERSION)" = "dev" ]; then echo "VERSION is required (e.g. make release VERSION=0.1.0)"; exit 1; fi

@@ -29,8 +29,10 @@ Watch the run at <https://github.com/sufleur/cli/actions/workflows/release.yml>.
 3. **publish-pypi** — uploads wheels to PyPI via Trusted Publishing
    (GitHub OIDC). No `PYPI_TOKEN` involved. Runs in the `pypi-release`
    environment, which requires reviewer approval.
-4. **publish-npm** — `npm publish --access public --provenance` with auth via
-   `NPM_TOKEN`. The `--provenance` attestation uses GitHub OIDC for signing.
+4. **publish-npm** — `npm publish --access public --provenance` via Trusted
+   Publishing (GitHub OIDC). Runs in the `npm-release` environment, which
+   requires reviewer approval. The `--provenance` attestation is signed via
+   GitHub OIDC.
 
 ## Rehearsing before a real release
 
@@ -67,9 +69,8 @@ sufleur --help
 | Secret         | Used by             | Notes                                          |
 | -------------- | ------------------- | ---------------------------------------------- |
 | `GITHUB_TOKEN` | every job (default) | Issued by Actions per-run, no setup            |
-| `NPM_TOKEN`    | `publish-npm`       | Granular access token scoped to `@sufleur/cli`.                                  |
 
-PyPI and TestPyPI use Trusted Publishing — no token in the repo.
+PyPI, TestPyPI, and npm use Trusted Publishing — no publish tokens in the repo.
 
 ## If something goes wrong
 

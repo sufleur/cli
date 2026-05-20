@@ -70,8 +70,8 @@ jobs:
     name: Publish to npm
     needs: build-binaries
     runs-on: ubuntu-latest
+    environment: npm-release
     permissions:
-      contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -81,5 +81,3 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - working-directory: wrappers/npm
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
