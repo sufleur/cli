@@ -79,5 +79,6 @@ jobs:
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm@latest
       - working-directory: wrappers/npm
         run: npm publish --access public --provenance
