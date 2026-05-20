@@ -1,6 +1,6 @@
 {
   "name": "@sufleur/cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "CLI for sufleur — type-safe codegen for versioned LLM prompts.",
   "keywords": [
     "sufleur",
