@@ -74,6 +74,8 @@ class CodeReview_EnInput(TypedDict):
     language: str
 ```
 
+Optional schema properties are wrapped in `typing.NotRequired[...]`, and `oneOf` schemas become PEP 604 unions (`X | Y`).
+
 Prompts published with `DRAFT` status emit a `warnings.warn(...)` when their `get_prompt` is called.
 
 ## sufleur.yaml
@@ -118,6 +120,62 @@ sufleur generate
 | `sufleur generate` | Regenerate the output file from the lockfile + cache. |
 
 `-v` / `--verbose` enables HTTP request/response logs on any command. Variables in `.env` are loaded automatically; per-workspace API keys can be referenced as `${ENV_VAR_NAME}` in `sufleur.yaml`.
+
+## Authoring prompts from the CLI
+
+The commands above install **published** prompts into your project. The CLI also exposes the full authoring side — designed so a coding agent (Claude Code, Cursor, etc.) can create, version, and edit prompts in your Sufleur workspace on your behalf.
+
+### Hand it to your agent
+
+`sufleur skill` prints a markdown skill description — when to use the CLI, FQ-name format, the full command surface, JSON flags. Pipe it wherever your agent loads skills from:
+
+```bash
+# Claude Code (each skill is a directory with a SKILL.md inside)
+mkdir -p ~/.claude/skills/sufleur && sufleur skill > ~/.claude/skills/sufleur/SKILL.md
+
+# Cursor
+sufleur skill > .cursor/rules/sufleur.md
+```
+
+The skill ships inside the binary, so it always matches the `sufleur` version on your `PATH`.
+
+### Log in
+
+```bash
+sufleur login    # device-code flow — opens a browser, polls until approved
+sufleur me       # show the authenticated user
+sufleur logout   # revoke the stored credential
+```
+
+Credentials land in `$XDG_CONFIG_HOME/sufleur/credentials.yaml` (or `~/.config/sufleur/credentials.yaml`). This user credential is separate from the workspace API keys referenced in `sufleur.yaml` — those stay machine-to-machine, this one identifies you as the author.
+
+### Authoring commands
+
+All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@workspace/name@version` (use the literal label `draft` while the version is unpublished).
+
+| Command | What it does |
+| ------- | ------------ |
+| `prompt create @ws/name --description "..."` | Create a new prompt in a workspace |
+| `prompt list @ws [--search ... --limit ... --offset ...]` | List prompts in a workspace |
+| `prompt get @ws/name` | Show one prompt's details |
+| `prompt update @ws/name --description "..."` | Update the description |
+| `version draft @ws/name` | Fork the latest published version into a new draft |
+| `version list @ws/name [--status DRAFT\|PUBLISHED]` | List versions of a prompt |
+| `version get @ws/name@version` | Show one version's details |
+| `version delete @ws/name@draft` | Delete a draft (published versions are immutable) |
+| `version set-metadata @ws/name@draft --string K=V` (or `--from-file …`) | Patch or sync metadata |
+| `version delete-metadata @ws/name@draft --key K` | Remove a metadata key |
+| `version set-output-schema @ws/name@draft --file schema.json` | Replace the version's output schema |
+| `version dump @ws/name@version --to ./dir` | Export files, output schema, and metadata to disk |
+| `file list @ws/name@version` | List files in a version |
+| `file create @ws/name@draft --file path.mustache [--entrypoint]` | Add a new file |
+| `file update @ws/name@draft --name X [--file ...] [--rename Y]` | Replace content and/or rename |
+| `file delete @ws/name@draft --name X` | Delete a file |
+| `file set-entrypoint @ws/name@draft --name X [--clear]` | Mark (or unmark) a file as an entrypoint |
+
+### Render before publishing
+
+`sufleur prompt render <dir> --entrypoint <name> [--vars '{...}' | --vars-file path.json]` runs the same Mustache pipeline as the generated runtime — useful for previewing a draft locally before publishing, or for quick experimentation against a `version dump` directory. No auth required.
 
 ## Invocation modes
 
