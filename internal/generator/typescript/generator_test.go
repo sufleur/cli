@@ -108,6 +108,8 @@ func TestSinglePromptFullSchema(t *testing.T) {
 
 	// render method on the result type
 	assertContains(t, output, "render: <E extends keyof EntrypointMapping[N] & string>")
+	assertContains(t, output, "input: EntrypointMapping[N][E],")
+	assertNotContains(t, output, "extends void")
 
 	// getPrompt entry point
 	assertContains(t, output, "export function getPrompt")
@@ -200,9 +202,9 @@ func TestEntrypointWithoutInput(t *testing.T) {
 
 	output := generateAndRead(t, prompts)
 
-	// No input interface — entrypoint maps to void
+	// No input interface — entrypoint maps to Record<string, never>
 	assertNotContains(t, output, "TestNoInput_UserPromptInput")
-	assertContains(t, output, "'userPrompt': void;")
+	assertContains(t, output, "'userPrompt': Record<string, never>;")
 }
 
 func TestCustomEntrypointName(t *testing.T) {
@@ -241,7 +243,7 @@ func TestCustomEntrypointName(t *testing.T) {
 
 	// Both entrypoints appear in EntrypointMapping
 	assertContains(t, output, "'assistantPrompt': TestMultiEntry_AssistantPromptInput;")
-	assertContains(t, output, "'toolCallPrompt': void;")
+	assertContains(t, output, "'toolCallPrompt': Record<string, never>;")
 
 	// Both keys present in templates
 	assertContains(t, output, "'assistantPrompt': `Assist with {{topic}}`,")

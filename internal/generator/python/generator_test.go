@@ -206,7 +206,7 @@ func TestEntrypointWithoutInput(t *testing.T) {
 	// No input type
 	assertNotContains(t, output, "TestNoInput_UserPromptInput")
 	// Overload has no input parameter
-	assertContains(t, output, "def render(self, entrypoint: Literal[\"userPrompt\"]) -> PromptOutput:")
+	assertContains(t, output, "def render(self, entrypoint: Literal[\"userPrompt\"], input: dict[str, Any]) -> PromptOutput:")
 }
 
 func TestCustomEntrypointName(t *testing.T) {
@@ -245,7 +245,7 @@ func TestCustomEntrypointName(t *testing.T) {
 
 	// Both render overloads present
 	assertContains(t, output, "def render(self, entrypoint: Literal[\"assistantPrompt\"], input: TestMultiEntry_AssistantPromptInput) -> PromptOutput:")
-	assertContains(t, output, "def render(self, entrypoint: Literal[\"toolCallPrompt\"]) -> PromptOutput:")
+	assertContains(t, output, "def render(self, entrypoint: Literal[\"toolCallPrompt\"], input: dict[str, Any]) -> PromptOutput:")
 
 	// Both keys present in templates
 	assertContains(t, output, `"assistantPrompt": "Assist with {{topic}}"`)
