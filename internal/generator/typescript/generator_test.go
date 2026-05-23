@@ -993,6 +993,70 @@ func TestOptionalFields(t *testing.T) {
 			expected: []string{"x?: string | null;"},
 			notWant:  []string{"null | null"},
 		},
+		{
+			name: "required array — fields not listed become optional",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"id":    map[string]interface{}{"type": "string"},
+					"dueAt": map[string]interface{}{"type": "string", "description": "Optional due ISO"},
+				},
+				"required": []interface{}{"id"},
+			},
+			expected: []string{
+				"id: string;",
+				"dueAt?: string | null;",
+				"/** Optional due ISO */",
+			},
+			notWant: []string{"dueAt: string"},
+		},
+		{
+			name: "required array — listed fields stay required",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"a": map[string]interface{}{"type": "string"},
+					"b": map[string]interface{}{"type": "string"},
+				},
+				"required": []interface{}{"a", "b"},
+			},
+			expected: []string{"a: string;", "b: string;"},
+			notWant:  []string{"a?:", "b?:"},
+		},
+		{
+			name: "required absent — defaults to all required",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{"type": "string"},
+				},
+			},
+			expected: []string{"name: string;"},
+			notWant:  []string{"name?:"},
+		},
+		{
+			name: "empty required array — every field becomes optional",
+			schema: map[string]interface{}{
+				"type":     "object",
+				"required": []interface{}{},
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{"type": "string"},
+				},
+			},
+			expected: []string{"name?: string | null;"},
+			notWant:  []string{"name: string;"},
+		},
+		{
+			name: "optional flag still wins when required lists the field",
+			schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"x": map[string]interface{}{"type": "string", "optional": true},
+				},
+				"required": []interface{}{"x"},
+			},
+			expected: []string{"x?: string | null;"},
+		},
 	}
 
 	for _, tt := range tests {

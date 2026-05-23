@@ -265,6 +265,13 @@ func objectToTS(schema map[string]interface{}, indent int) string {
 	}
 	sort.Strings(keys)
 
+	// A property is optional if its own `optional: true` flag is set, or if the
+	// parent object declares a `required` array and this property is absent
+	// from it (standard JSON Schema). When `required` is absent entirely, every
+	// property defaults to required to match prompts authored before this
+	// distinction existed.
+	requiredSet, hasRequired := requiredSetFromSchema(schema)
+
 	innerIndent := strings.Repeat("  ", indent+1)
 	for _, k := range keys {
 		v, ok := props[k].(map[string]interface{})
@@ -280,7 +287,8 @@ func objectToTS(schema map[string]interface{}, indent int) string {
 			b.WriteString(" */\n")
 		}
 
-		optional, _ := v["optional"].(bool)
+		flagged, _ := v["optional"].(bool)
+		optional := flagged || (hasRequired && !requiredSet[k])
 		b.WriteString(innerIndent)
 		b.WriteString(k)
 		if optional {
@@ -303,6 +311,25 @@ func objectToTS(schema map[string]interface{}, indent int) string {
 	b.WriteString(strings.Repeat("  ", indent))
 	b.WriteString("}")
 	return b.String()
+}
+
+// requiredSetFromSchema reads schema["required"] as a JSON Schema string array
+// and returns the membership set plus a flag indicating whether the array was
+// present at all. Callers use the flag to distinguish "no required declared"
+// (treat properties as required by default) from "required: []" (treat all as
+// optional).
+func requiredSetFromSchema(schema map[string]interface{}) (map[string]bool, bool) {
+	raw, ok := schema["required"].([]interface{})
+	if !ok {
+		return nil, false
+	}
+	set := make(map[string]bool, len(raw))
+	for _, r := range raw {
+		if s, ok := r.(string); ok {
+			set[s] = true
+		}
+	}
+	return set, true
 }
 
 func arrayToTS(schema map[string]interface{}, indent int) string {
