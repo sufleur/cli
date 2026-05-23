@@ -66,6 +66,88 @@ func TestJsonSchemaToPydantic(t *testing.T) {
 			expectedTopClass: `Literal["red", "green", "blue"]`,
 		},
 		{
+			name: "string enum without type",
+			schema: map[string]interface{}{
+				"enum": []interface{}{"add", "update", "complete", "merge"},
+			},
+			className:        "Output",
+			expectedModels:   "",
+			expectedTopClass: `Literal["add", "update", "complete", "merge"]`,
+		},
+		{
+			name: "single-value string enum",
+			schema: map[string]interface{}{
+				"enum": []interface{}{"only"},
+			},
+			className:        "Output",
+			expectedModels:   "",
+			expectedTopClass: `Literal["only"]`,
+		},
+		{
+			name: "integer enum",
+			schema: map[string]interface{}{
+				"type": "integer",
+				"enum": []interface{}{float64(1), float64(2), float64(3)},
+			},
+			className:        "Output",
+			expectedModels:   "",
+			expectedTopClass: "Literal[1, 2, 3]",
+		},
+		{
+			name: "number enum",
+			schema: map[string]interface{}{
+				"enum": []interface{}{float64(0.5), float64(1.5)},
+			},
+			className:        "Output",
+			expectedModels:   "",
+			expectedTopClass: "Literal[0.5, 1.5]",
+		},
+		{
+			name: "single-value number enum",
+			schema: map[string]interface{}{
+				"enum": []interface{}{float64(42)},
+			},
+			className:        "Output",
+			expectedModels:   "",
+			expectedTopClass: "Literal[42]",
+		},
+		{
+			name: "boolean enum",
+			schema: map[string]interface{}{
+				"enum": []interface{}{true, false},
+			},
+			className:        "Output",
+			expectedModels:   "",
+			expectedTopClass: "Literal[True, False]",
+		},
+		{
+			name: "single-value boolean enum",
+			schema: map[string]interface{}{
+				"enum": []interface{}{true},
+			},
+			className:        "Output",
+			expectedModels:   "",
+			expectedTopClass: "Literal[True]",
+		},
+		{
+			name: "mixed-kind enum falls back to Any",
+			schema: map[string]interface{}{
+				"enum": []interface{}{"a", float64(1)},
+			},
+			className:        "Output",
+			expectedModels:   "",
+			expectedTopClass: "Any",
+		},
+		{
+			name: "empty enum falls back to Any",
+			schema: map[string]interface{}{
+				"enum": []interface{}{},
+			},
+			className:        "Output",
+			expectedModels:   "",
+			expectedTopClass: "Any",
+		},
+		{
 			name: "object with required and optional properties",
 			schema: map[string]interface{}{
 				"type": "object",

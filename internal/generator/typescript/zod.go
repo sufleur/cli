@@ -3,6 +3,7 @@ package typescript
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -17,11 +18,9 @@ func jsonSchemaToZod(schema map[string]interface{}, indent int) string {
 		return anyOfToZod(anyOf, indent)
 	}
 
-	// enum + type: "string"
+	// enum (independent of type)
 	if enum, ok := schema["enum"]; ok {
-		if typ, _ := schema["type"].(string); typ == "string" {
-			return enumToZod(enum)
-		}
+		return enumToZod(enum)
 	}
 
 	typ, _ := schema["type"].(string)
@@ -48,13 +47,66 @@ func enumToZod(enum interface{}) string {
 	if !ok || len(values) == 0 {
 		return "z.unknown() /* unsupported */"
 	}
-	var items []string
+
+	allStrings := true
+	allNumbers := true
+	allBools := true
 	for _, v := range values {
-		if s, ok := v.(string); ok {
-			items = append(items, fmt.Sprintf("%q", s))
+		switch v.(type) {
+		case string:
+			allNumbers = false
+			allBools = false
+		case float64:
+			allStrings = false
+			allBools = false
+		case bool:
+			allStrings = false
+			allNumbers = false
+		default:
+			return "z.unknown() /* unsupported */"
 		}
 	}
-	return fmt.Sprintf("z.enum([%s])", strings.Join(items, ", "))
+
+	switch {
+	case allStrings:
+		items := make([]string, len(values))
+		for i, v := range values {
+			items[i] = fmt.Sprintf("%q", v.(string))
+		}
+		return fmt.Sprintf("z.enum([%s])", strings.Join(items, ", "))
+	case allNumbers:
+		return literalsToZod(values, formatNumberLiteral)
+	case allBools:
+		return literalsToZod(values, formatBoolLiteral)
+	default:
+		return "z.unknown() /* unsupported */"
+	}
+}
+
+func literalsToZod(values []interface{}, format func(interface{}) string) string {
+	if len(values) == 1 {
+		return fmt.Sprintf("z.literal(%s)", format(values[0]))
+	}
+	parts := make([]string, len(values))
+	for i, v := range values {
+		parts[i] = fmt.Sprintf("z.literal(%s)", format(v))
+	}
+	return fmt.Sprintf("z.union([%s])", strings.Join(parts, ", "))
+}
+
+func formatNumberLiteral(v interface{}) string {
+	n := v.(float64)
+	if n == float64(int64(n)) {
+		return strconv.FormatInt(int64(n), 10)
+	}
+	return strconv.FormatFloat(n, 'g', -1, 64)
+}
+
+func formatBoolLiteral(v interface{}) string {
+	if v.(bool) {
+		return "true"
+	}
+	return "false"
 }
 
 func objectToZod(schema map[string]interface{}, indent int) string {

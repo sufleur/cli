@@ -49,6 +49,70 @@ func TestJsonSchemaToZod(t *testing.T) {
 			expected: `z.enum(["red", "green", "blue"])`,
 		},
 		{
+			name: "string enum without type",
+			schema: map[string]interface{}{
+				"enum": []interface{}{"add", "update", "complete", "merge"},
+			},
+			expected: `z.enum(["add", "update", "complete", "merge"])`,
+		},
+		{
+			name: "single-value string enum",
+			schema: map[string]interface{}{
+				"enum": []interface{}{"only"},
+			},
+			expected: `z.enum(["only"])`,
+		},
+		{
+			name: "integer enum",
+			schema: map[string]interface{}{
+				"type": "integer",
+				"enum": []interface{}{float64(1), float64(2), float64(3)},
+			},
+			expected: "z.union([z.literal(1), z.literal(2), z.literal(3)])",
+		},
+		{
+			name: "number enum",
+			schema: map[string]interface{}{
+				"enum": []interface{}{float64(0.5), float64(1.5)},
+			},
+			expected: "z.union([z.literal(0.5), z.literal(1.5)])",
+		},
+		{
+			name: "single-value number enum",
+			schema: map[string]interface{}{
+				"enum": []interface{}{float64(42)},
+			},
+			expected: "z.literal(42)",
+		},
+		{
+			name: "boolean enum",
+			schema: map[string]interface{}{
+				"enum": []interface{}{true, false},
+			},
+			expected: "z.union([z.literal(true), z.literal(false)])",
+		},
+		{
+			name: "single-value boolean enum",
+			schema: map[string]interface{}{
+				"enum": []interface{}{true},
+			},
+			expected: "z.literal(true)",
+		},
+		{
+			name: "mixed-kind enum falls back to unknown",
+			schema: map[string]interface{}{
+				"enum": []interface{}{"a", float64(1)},
+			},
+			expected: "z.unknown() /* unsupported */",
+		},
+		{
+			name: "empty enum falls back to unknown",
+			schema: map[string]interface{}{
+				"enum": []interface{}{},
+			},
+			expected: "z.unknown() /* unsupported */",
+		},
+		{
 			name: "object with required and optional properties",
 			schema: map[string]interface{}{
 				"type": "object",
