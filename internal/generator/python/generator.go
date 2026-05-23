@@ -721,7 +721,7 @@ class _{{.PascalName}}Result:
     {{- range .Entrypoints}}
 
     @overload
-    def render(self, entrypoint: Literal["{{.Name}}"]{{if .HasInput}}, input: {{.InputTypeName}}{{end}}) -> PromptOutput: ...
+    def render(self, entrypoint: Literal["{{.Name}}"], input: {{if .HasInput}}{{.InputTypeName}}{{else}}dict[str, Any]{{end}}) -> PromptOutput: ...
     {{- end}}
 
     def render(self, entrypoint: str, input: Any = None) -> PromptOutput:

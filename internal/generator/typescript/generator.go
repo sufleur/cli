@@ -464,14 +464,14 @@ export type PromptName ={{range .Prompts}} | '{{.Name}}'{{end}};
 //
 // For each prompt, lists its entrypoint files and the input type required to
 // render each one. Drives type narrowing for ` + "`render(entrypoint, input)`" + `.
-// ` + "`void`" + ` means the entrypoint has no input schema and is callable with no
-// arguments (other than the entrypoint name).
+// Entrypoints with no input schema map to ` + "`Record<string, never>`" + `, so callers
+// pass ` + "`{}`" + ` for them.
 
 export interface EntrypointMapping {
 {{- range $p := .Prompts}}
   '{{$p.Name}}': {
     {{- range $p.Entrypoints}}
-    '{{.Name}}': {{if .HasInput}}{{$p.PascalName}}_{{.PascalEntry}}Input{{else}}void{{end}};
+    '{{.Name}}': {{if .HasInput}}{{$p.PascalName}}_{{.PascalEntry}}Input{{else}}Record<string, never>{{end}};
     {{- end}}
   };
 {{- end}}
@@ -594,7 +594,7 @@ const _draftPrompts: Set<string> = new Set([
 type PromptResult<N extends PromptName> = {
   render: <E extends keyof EntrypointMapping[N] & string>(
     entrypoint: E,
-    ...input: EntrypointMapping[N][E] extends void ? [] : [EntrypointMapping[N][E]]
+    input: EntrypointMapping[N][E],
   ) => PromptOutput;
   metadata: (typeof _metadata)[N];
 } & (OutputMapping[N] extends never ? {} : {
@@ -605,7 +605,7 @@ type PromptResult<N extends PromptName> = {
 interface PromptResult<N extends PromptName> {
   render: <E extends keyof EntrypointMapping[N] & string>(
     entrypoint: E,
-    ...input: EntrypointMapping[N][E] extends void ? [] : [EntrypointMapping[N][E]]
+    input: EntrypointMapping[N][E],
   ) => PromptOutput;
   metadata: (typeof _metadata)[N];
 }
@@ -629,13 +629,13 @@ export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> 
 
   const render = <E extends keyof EntrypointMapping[N] & string>(
     entrypoint: E,
-    ...input: EntrypointMapping[N][E] extends void ? [] : [EntrypointMapping[N][E]]
+    input: EntrypointMapping[N][E],
   ): PromptOutput => {
     const template = templates[entrypoint];
     if (template === undefined) {
       throw new Error(` + "`" + `[sufleur] Unknown entrypoint "${entrypoint}" for prompt "${promptName}"` + "`" + `);
     }
-    return { prompt: Mustache.render(template, input[0] ?? {}, partials) };
+    return { prompt: Mustache.render(template, input ?? {}, partials) };
   };
 
   const metadata = _metadata[promptName];
@@ -677,13 +677,13 @@ export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> 
 
   const render = <E extends keyof EntrypointMapping[N] & string>(
     entrypoint: E,
-    ...input: EntrypointMapping[N][E] extends void ? [] : [EntrypointMapping[N][E]]
+    input: EntrypointMapping[N][E],
   ): PromptOutput => {
     const template = templates[entrypoint];
     if (template === undefined) {
       throw new Error(` + "`" + `[sufleur] Unknown entrypoint "${entrypoint}" for prompt "${promptName}"` + "`" + `);
     }
-    return { prompt: Mustache.render(template, input[0] ?? {}, partials) };
+    return { prompt: Mustache.render(template, input ?? {}, partials) };
   };
 
   return { render, metadata: _metadata[promptName] };
