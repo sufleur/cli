@@ -3,6 +3,7 @@ package python
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -49,11 +50,9 @@ func schemaToPydanticType(schema map[string]interface{}, className string, class
 		return anyOfToPydantic(anyOf, className, classes)
 	}
 
-	// enum + type: "string"
+	// enum (independent of type)
 	if enum, ok := schema["enum"]; ok {
-		if typ, _ := schema["type"].(string); typ == "string" {
-			return enumToPydantic(enum)
-		}
+		return enumToPydantic(enum)
 	}
 
 	typ, _ := schema["type"].(string)
@@ -80,13 +79,56 @@ func enumToPydantic(enum interface{}) string {
 	if !ok || len(values) == 0 {
 		return "Any"
 	}
-	var items []string
+
+	allStrings := true
+	allNumbers := true
+	allBools := true
 	for _, v := range values {
-		if s, ok := v.(string); ok {
-			items = append(items, fmt.Sprintf("%q", s))
+		switch v.(type) {
+		case string:
+			allNumbers = false
+			allBools = false
+		case float64:
+			allStrings = false
+			allBools = false
+		case bool:
+			allStrings = false
+			allNumbers = false
+		default:
+			return "Any"
 		}
 	}
+
+	items := make([]string, len(values))
+	switch {
+	case allStrings:
+		for i, v := range values {
+			items[i] = fmt.Sprintf("%q", v.(string))
+		}
+	case allNumbers:
+		for i, v := range values {
+			items[i] = formatNumberLiteral(v)
+		}
+	case allBools:
+		for i, v := range values {
+			if v.(bool) {
+				items[i] = "True"
+			} else {
+				items[i] = "False"
+			}
+		}
+	default:
+		return "Any"
+	}
 	return fmt.Sprintf("Literal[%s]", strings.Join(items, ", "))
+}
+
+func formatNumberLiteral(v interface{}) string {
+	n := v.(float64)
+	if n == float64(int64(n)) {
+		return strconv.FormatInt(int64(n), 10)
+	}
+	return strconv.FormatFloat(n, 'g', -1, 64)
 }
 
 func objectToPydantic(schema map[string]interface{}, className string, classes *[]pydanticClass) string {
