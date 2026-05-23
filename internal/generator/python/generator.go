@@ -266,6 +266,13 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 			className = "_" + namePrefix
 		}
 
+		// A property is optional if its own `optional: true` flag is set, or if
+		// the parent declares a `required` array (standard JSON Schema) and the
+		// property is absent from it. When `required` is absent entirely, every
+		// property defaults to required to match prompts authored before this
+		// distinction existed.
+		requiredSet, hasRequired := requiredSetFromSchema(schema)
+
 		var fields []typedDictField
 		for _, k := range keys {
 			v, ok := props[k].(map[string]interface{})
@@ -275,7 +282,8 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 			// Child name prefix never includes _; that gets added by the recursive call.
 			childName := namePrefix + "_" + toPascalCase(k)
 			fieldType := collectTypedDicts(v, childName, classes, false, analysis)
-			if optional, _ := v["optional"].(bool); optional {
+			flagged, _ := v["optional"].(bool)
+			if optional := flagged || (hasRequired && !requiredSet[k]); optional {
 				// Accept None-shaped caller data (DBs, APIs) without forcing
 				// callers to coerce. mustache treats None as falsy, so runtime
 				// is unaffected. Skip the Optional[] wrap when the inner type
@@ -304,6 +312,25 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 	}
 	// Empty schema or untyped property — treat as opaque.
 	return "Any"
+}
+
+// requiredSetFromSchema reads schema["required"] as a JSON Schema string array
+// and returns the membership set plus a flag indicating whether the array was
+// present at all. Callers use the flag to distinguish "no required declared"
+// (treat properties as required by default) from "required: []" (treat all as
+// optional).
+func requiredSetFromSchema(schema map[string]interface{}) (map[string]bool, bool) {
+	raw, ok := schema["required"].([]interface{})
+	if !ok {
+		return nil, false
+	}
+	set := make(map[string]bool, len(raw))
+	for _, r := range raw {
+		if s, ok := r.(string); ok {
+			set[s] = true
+		}
+	}
+	return set, true
 }
 
 // unionToPythonType emits a Python Union from a JSON Schema oneOf/anyOf array.
