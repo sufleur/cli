@@ -16,6 +16,7 @@ type PromptVersion struct {
 	UpdatedAt    time.Time      `json:"updatedAt"`
 	Metadata     map[string]any `json:"metadata"`
 	OutputSchema map[string]any `json:"outputSchema,omitempty"`
+	Readme       string         `json:"readme"`
 	Files        []PromptFile   `json:"files"`
 }
 
@@ -33,7 +34,7 @@ type PromptVersionsPage struct {
 	Total int             `json:"total"`
 }
 
-const promptVersionFields = "version status createdAt updatedAt metadata outputSchema files { name content isEntrypoint }"
+const promptVersionFields = "version status createdAt updatedAt metadata outputSchema readme files { name content isEntrypoint }"
 
 // CreatePromptVersion creates a new draft version of an existing prompt by
 // copying its latest published version.
@@ -210,6 +211,31 @@ func (c *Client) SetPromptVersionOutputSchema(ctx context.Context, workspace, na
 	}
 	if resp.Version == nil {
 		return nil, errMissingData("promptVersionSetOutputSchema")
+	}
+	return resp.Version, nil
+}
+
+// SetPromptVersionReadme replaces a draft version's README. The backend
+// enforces a length limit and rejects writes to published versions; both
+// surface as GraphQL errors.
+func (c *Client) SetPromptVersionReadme(ctx context.Context, workspace, name, version, readme string) (*PromptVersion, error) {
+	var resp struct {
+		Version *PromptVersion `json:"promptVersionSetReadme"`
+	}
+	err := c.Do(ctx, Request{
+		Query: "mutation SetReadme($promptName: ID!, $version: ID!, $readme: String!) { promptVersionSetReadme(promptName: $promptName, version: $version, readme: $readme) { " + promptVersionFields + " } }",
+		Variables: map[string]any{
+			"promptName": name,
+			"version":    version,
+			"readme":     readme,
+		},
+		Workspace: workspace,
+	}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Version == nil {
+		return nil, errMissingData("promptVersionSetReadme")
 	}
 	return resp.Version, nil
 }

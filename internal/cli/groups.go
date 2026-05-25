@@ -51,6 +51,8 @@ func init() {
 		versionSetMetadataCmd,
 		versionDeleteMetadataCmd,
 		versionSetOutputSchemaCmd,
+		versionSetReadmeCmd,
+		versionGetReadmeCmd,
 		versionDumpCmd,
 	)
 	fileCmd.AddCommand(
