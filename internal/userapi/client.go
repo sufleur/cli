@@ -68,6 +68,7 @@ func (c *Client) Do(ctx context.Context, req Request, result any) error {
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("X-Client", "cli")
 	if req.Workspace != "" {
 		httpReq.Header.Set("X-Workspace", req.Workspace)
 	}
