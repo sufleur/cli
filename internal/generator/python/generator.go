@@ -266,12 +266,11 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 			className = "_" + namePrefix
 		}
 
-		// A property is optional if its own `optional: true` flag is set, or if
-		// the parent declares a `required` array (standard JSON Schema) and the
-		// property is absent from it. When `required` is absent entirely, every
-		// property defaults to required to match prompts authored before this
-		// distinction existed.
-		requiredSet, hasRequired := requiredSetFromSchema(schema)
+		// A property is optional iff it is not listed in the parent object's
+		// `required` array (standard JSON Schema). When `required` is absent
+		// entirely, every property is optional — that is the case the backend
+		// uses to mean "no required properties".
+		requiredSet := requiredSetFromSchema(schema)
 
 		var fields []typedDictField
 		for _, k := range keys {
@@ -282,8 +281,7 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 			// Child name prefix never includes _; that gets added by the recursive call.
 			childName := namePrefix + "_" + toPascalCase(k)
 			fieldType := collectTypedDicts(v, childName, classes, false, analysis)
-			flagged, _ := v["optional"].(bool)
-			if optional := flagged || (hasRequired && !requiredSet[k]); optional {
+			if optional := !requiredSet[k]; optional {
 				// Accept None-shaped caller data (DBs, APIs) without forcing
 				// callers to coerce. mustache treats None as falsy, so runtime
 				// is unaffected. Skip the Optional[] wrap when the inner type
@@ -315,14 +313,13 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 }
 
 // requiredSetFromSchema reads schema["required"] as a JSON Schema string array
-// and returns the membership set plus a flag indicating whether the array was
-// present at all. Callers use the flag to distinguish "no required declared"
-// (treat properties as required by default) from "required: []" (treat all as
-// optional).
-func requiredSetFromSchema(schema map[string]interface{}) (map[string]bool, bool) {
+// and returns the membership set. Returns a nil map when `required` is absent;
+// callers rely on the fact that indexing a nil map yields the zero value, so
+// the "absent" case naturally means "no properties are required".
+func requiredSetFromSchema(schema map[string]interface{}) map[string]bool {
 	raw, ok := schema["required"].([]interface{})
 	if !ok {
-		return nil, false
+		return nil
 	}
 	set := make(map[string]bool, len(raw))
 	for _, r := range raw {
@@ -330,7 +327,7 @@ func requiredSetFromSchema(schema map[string]interface{}) (map[string]bool, bool
 			set[s] = true
 		}
 	}
-	return set, true
+	return set
 }
 
 // unionToPythonType emits a Python Union from a JSON Schema oneOf/anyOf array.

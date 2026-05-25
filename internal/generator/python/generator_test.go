@@ -40,8 +40,10 @@ func TestSinglePromptFullSchema(t *testing.T) {
 						"description": "User's age in years",
 					},
 				},
+				"required": []interface{}{"name", "age"},
 			},
 		},
+		"required": []interface{}{"user"},
 	}
 	systemInputSchema := map[string]interface{}{
 		"type": "object",
@@ -50,6 +52,7 @@ func TestSinglePromptFullSchema(t *testing.T) {
 				"type": "string",
 			},
 		},
+		"required": []interface{}{"tone"},
 	}
 
 	prompts := []generator.PromptData{
@@ -226,6 +229,7 @@ func TestCustomEntrypointName(t *testing.T) {
 						"properties": map[string]interface{}{
 							"topic": map[string]interface{}{"type": "string"},
 						},
+						"required": []interface{}{"topic"},
 					},
 				},
 				{
@@ -433,6 +437,7 @@ func TestFieldDescriptions(t *testing.T) {
 								"description": "The user's full name",
 							},
 						},
+						"required": []interface{}{"name"},
 					},
 				},
 			},
@@ -578,10 +583,13 @@ func TestNestedObjectTypedDict(t *testing.T) {
 												"type": "string",
 											},
 										},
+										"required": []interface{}{"value"},
 									},
 								},
+								"required": []interface{}{"inner"},
 							},
 						},
+						"required": []interface{}{"outer"},
 					},
 				},
 			},
@@ -1042,7 +1050,7 @@ func TestOptionalFields(t *testing.T) {
 			schema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"name": map[string]interface{}{"type": "string", "optional": true},
+					"name": map[string]interface{}{"type": "string"},
 				},
 			},
 			expected: []string{"name: NotRequired[Optional[str]]"},
@@ -1052,7 +1060,7 @@ func TestOptionalFields(t *testing.T) {
 			schema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"dueAt": map[string]interface{}{"optional": true},
+					"dueAt": map[string]interface{}{},
 				},
 			},
 			expected: []string{"dueAt: NotRequired[Any]"},
@@ -1064,9 +1072,8 @@ func TestOptionalFields(t *testing.T) {
 				"type": "object",
 				"properties": map[string]interface{}{
 					"items": map[string]interface{}{
-						"type":     "array",
-						"items":    map[string]interface{}{"type": "string"},
-						"optional": true,
+						"type":  "array",
+						"items": map[string]interface{}{"type": "string"},
 					},
 				},
 			},
@@ -1078,11 +1085,11 @@ func TestOptionalFields(t *testing.T) {
 				"type": "object",
 				"properties": map[string]interface{}{
 					"user": map[string]interface{}{
-						"type":     "object",
-						"optional": true,
+						"type": "object",
 						"properties": map[string]interface{}{
 							"name": map[string]interface{}{"type": "string"},
 						},
+						"required": []interface{}{"name"},
 					},
 				},
 			},
@@ -1097,13 +1104,14 @@ func TestOptionalFields(t *testing.T) {
 				"type": "object",
 				"properties": map[string]interface{}{
 					"name":     map[string]interface{}{"type": "string"},
-					"dueAt":    map[string]interface{}{"optional": true},
-					"priority": map[string]interface{}{"type": "string", "optional": true},
+					"dueAt":    map[string]interface{}{},
+					"priority": map[string]interface{}{"type": "string"},
 					"items": map[string]interface{}{
 						"type":  "array",
 						"items": map[string]interface{}{"type": "string"},
 					},
 				},
+				"required": []interface{}{"name", "items"},
 			},
 			expected: []string{
 				"name: str",
@@ -1122,7 +1130,6 @@ func TestOptionalFields(t *testing.T) {
 							map[string]interface{}{"type": "string"},
 							map[string]interface{}{"type": "number"},
 						},
-						"optional": true,
 					},
 				},
 			},
@@ -1138,7 +1145,6 @@ func TestOptionalFields(t *testing.T) {
 							map[string]interface{}{"type": "string"},
 							map[string]interface{}{"type": "null"},
 						},
-						"optional": true,
 					},
 				},
 			},
@@ -1175,15 +1181,14 @@ func TestOptionalFields(t *testing.T) {
 			notWant:  []string{"NotRequired"},
 		},
 		{
-			name: "required absent — defaults to all required",
+			name: "required absent — every field becomes optional",
 			schema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"name": map[string]interface{}{"type": "string"},
 				},
 			},
-			expected: []string{"name: str"},
-			notWant:  []string{"NotRequired"},
+			expected: []string{"name: NotRequired[Optional[str]]"},
 		},
 		{
 			name: "empty required array — every field becomes optional",
@@ -1197,15 +1202,26 @@ func TestOptionalFields(t *testing.T) {
 			expected: []string{"name: NotRequired[Optional[str]]"},
 		},
 		{
-			name: "optional flag still wins when required lists the field",
+			name: "openTodos repro — three required, two optional",
 			schema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"x": map[string]interface{}{"type": "string", "optional": true},
+					"id":       map[string]interface{}{"type": "string"},
+					"shortRef": map[string]interface{}{"type": "string"},
+					"title":    map[string]interface{}{"type": "string"},
+					"dueAt":    map[string]interface{}{"type": "string"},
+					"priority": map[string]interface{}{"type": "string"},
 				},
-				"required": []interface{}{"x"},
+				"required": []interface{}{"id", "shortRef", "title"},
 			},
-			expected: []string{"x: NotRequired[Optional[str]]"},
+			expected: []string{
+				"id: str",
+				"shortRef: str",
+				"title: str",
+				"dueAt: NotRequired[Optional[str]]",
+				"priority: NotRequired[Optional[str]]",
+			},
+			notWant: []string{"dueAt: str\n", "priority: str\n"},
 		},
 	}
 
@@ -1260,6 +1276,7 @@ func TestOptionalImportGate(t *testing.T) {
 							"properties": map[string]interface{}{
 								"name": map[string]interface{}{"type": "string"},
 							},
+							"required": []interface{}{"name"},
 						},
 					},
 				},
@@ -1285,8 +1302,9 @@ func TestOptionalImportGate(t *testing.T) {
 						InputSchema: map[string]interface{}{
 							"type": "object",
 							"properties": map[string]interface{}{
-								"name": map[string]interface{}{"type": "string", "optional": true},
+								"name": map[string]interface{}{"type": "string"},
 							},
+							// no `required` → `name` is optional under the new spec.
 						},
 					},
 				},
@@ -1319,6 +1337,7 @@ func TestOptionalImportGate(t *testing.T) {
 									},
 								},
 							},
+							"required": []interface{}{"x"},
 						},
 					},
 				},
