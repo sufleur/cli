@@ -111,7 +111,7 @@ Notes:
 * `--entrypoint` is **required** and names the file in `./working/files/` (the `.mustache` suffix is accepted but optional).
 * `--vars` is an inline JSON object; use `--vars-file ./vars.json` for larger inputs.
 * `{{@outputSchema}}` is substituted with the local `output-schema.json` (pretty-printed) before rendering, matching the codegen-time behaviour.
-* `{{@type ...}}` and `{{@doc ...}}` directives render to empty strings — they exist as platform metadata, not output.
+* `{{@type ...}}`, `{{@doc ...}}`, and `{{@optional}}` directives render to empty strings — they exist as platform metadata (consumed by schema inference), not output. Place them next to the variable they describe: `{{@type string}}` annotates the type, `{{@doc ...}}` adds a description, and `{{@optional}}` marks the preceding input property as optional (omitted properties default to required).
 
 ### 4. Push changes back
 
