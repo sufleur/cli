@@ -111,7 +111,7 @@ Notes:
 * `--entrypoint` is **required** and names the file in `./working/files/` (the `.mustache` suffix is accepted but optional).
 * `--vars` is an inline JSON object; use `--vars-file ./vars.json` for larger inputs.
 * `{{@outputSchema}}` is substituted with the local `output-schema.json` (pretty-printed) before rendering, matching the codegen-time behaviour.
-* `{{@type ...}}`, `{{@doc ...}}`, and `{{@optional}}` directives render to empty strings — they exist as platform metadata (consumed by schema inference), not output. Place them next to the variable they describe: `{{@type string}}` annotates the type, `{{@doc ...}}` adds a description, and `{{@optional}}` marks the preceding input property as optional (omitted properties default to required).
+* `{{@type ...}}`, `{{@doc ...}}`, and `{{@optional}}` directives render to empty strings — they exist as platform metadata (consumed by schema inference), not output. Place them next to the variable they describe: `{{@type string}}` annotates the type, `{{@doc ...}}` adds a description, and `{{@optional}}` marks the preceding input property as optional (omitted properties default to required). Important: `{{@doc ...}}` is **only** carried into generated code as a JSDoc comment / Python docstring on the corresponding input field — it does **not** become part of the rendered prompt the LLM sees. If you want the model itself to read guidance about a variable, write that guidance into the prompt template directly; `{{@doc ...}}` is for downstream developer ergonomics only.
 
 ### 4. Push changes back
 
