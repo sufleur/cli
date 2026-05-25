@@ -19,6 +19,9 @@ func TestDo_Success(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer u_test" {
 			t.Errorf("Authorization = %q", got)
 		}
+		if got := r.Header.Get("X-Client"); got != "cli" {
+			t.Errorf("X-Client = %q, want cli", got)
+		}
 		if got := r.Header.Get("X-Workspace"); got != "acme" {
 			t.Errorf("X-Workspace = %q, want acme", got)
 		}

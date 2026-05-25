@@ -49,6 +49,7 @@ func NewClient(endpoint, apiKey, workspace string, verbose bool) Client {
 	gql := graphql.NewClient(endpoint, httpClient).
 		WithRequestModifier(func(req *http.Request) {
 			req.Header.Set("Authorization", "Bearer "+apiKey)
+			req.Header.Set("X-Client", "cli")
 			if workspace != "" {
 				req.Header.Set("X-Workspace", workspace)
 			}
