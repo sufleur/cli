@@ -215,3 +215,30 @@ func TestClient_SetPromptVersionOutputSchema(t *testing.T) {
 		t.Errorf("outputSchema not echoed: %+v", v.OutputSchema)
 	}
 }
+
+func TestClient_SetPromptVersionReadme(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req graphqlRequest
+		_ = json.Unmarshal(body, &req)
+		if !strings.Contains(req.Query, "promptVersionSetReadme") {
+			t.Errorf("query missing promptVersionSetReadme: %q", req.Query)
+		}
+		if !strings.Contains(req.Query, "$readme: String!") {
+			t.Errorf("query missing $readme: String!: %q", req.Query)
+		}
+		if req.Variables["readme"] != "# Hello" {
+			t.Errorf("readme = %v, want %q", req.Variables["readme"], "# Hello")
+		}
+		_, _ = w.Write([]byte(`{"data":{"promptVersionSetReadme":{"version":"1.0.0","status":"DRAFT","createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-12T10:23:45Z","metadata":{},"outputSchema":null,"readme":"# Hello","files":[]}}}`))
+	}))
+	defer server.Close()
+
+	v, err := New(server.URL, "u_test", false).SetPromptVersionReadme(context.Background(), "acme", "welcome", "1.0.0", "# Hello")
+	if err != nil {
+		t.Fatalf("SetPromptVersionReadme: %v", err)
+	}
+	if v.Readme != "# Hello" {
+		t.Errorf("readme not echoed: %q", v.Readme)
+	}
+}

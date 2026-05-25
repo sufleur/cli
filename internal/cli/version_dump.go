@@ -22,6 +22,7 @@ var versionDumpCmd = &cobra.Command{
 
   <dir>/files/<filename>      one file per PromptFile, content verbatim
   <dir>/output-schema.json    pretty-printed JSON; omitted if the version has no schema
+  <dir>/README.md             raw markdown; always written (empty if never set)
   <dir>/metadata.yaml         flat key-value YAML; "{}" if metadata is empty
 
 The directory is created if it doesn't exist. Pass --force to overwrite a
@@ -67,9 +68,10 @@ non-empty directory; otherwise dump aborts if the target already has files.`,
 		asJSON, _ := cmd.Flags().GetBool("json")
 		if asJSON {
 			return printJSON(cmd, map[string]any{
-				"directory": dir,
-				"files":     len(v.Files),
+				"directory":       dir,
+				"files":           len(v.Files),
 				"hasOutputSchema": v.OutputSchema != nil,
+				"readmeBytes":     len(v.Readme),
 				"metadataKeys":    len(v.Metadata),
 			})
 		}
@@ -123,6 +125,11 @@ func writeDump(dir string, v *userapi.PromptVersion) error {
 		if err := os.WriteFile(schemaPath, raw, 0o644); err != nil {
 			return fmt.Errorf("writing %s: %w", schemaPath, err)
 		}
+	}
+
+	readmePath := filepath.Join(dir, "README.md")
+	if err := os.WriteFile(readmePath, []byte(v.Readme), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", readmePath, err)
 	}
 
 	metadataPath := filepath.Join(dir, "metadata.yaml")

@@ -166,7 +166,9 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `version set-metadata @ws/name@draft --string K=V` (or `--from-file …`) | Patch or sync metadata |
 | `version delete-metadata @ws/name@draft --key K` | Remove a metadata key |
 | `version set-output-schema @ws/name@draft --file schema.json` | Replace the version's output schema |
-| `version dump @ws/name@version --to ./dir` | Export files, output schema, and metadata to disk |
+| `version set-readme @ws/name@draft [--content STR \| --file PATH]` | Replace the version's README |
+| `version get-readme @ws/name@version` | Print the version's README to stdout (raw markdown) |
+| `version dump @ws/name@version --to ./dir` | Export files, output schema, README, and metadata to disk |
 | `file list @ws/name@version` | List files in a version |
 | `file create @ws/name@draft --file path.mustache [--entrypoint]` | Add a new file |
 | `file update @ws/name@draft --name X [--file ...] [--rename Y]` | Replace content and/or rename |

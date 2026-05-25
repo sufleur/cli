@@ -92,6 +92,7 @@ Produces:
     welcome.mustache           # one per file on the version
     partials.mustache
   output-schema.json           # absent if the version has no schema
+  README.md                    # always present (empty if never set)
   metadata.yaml                # flat key→value, "{}" when empty
 ```
 
@@ -134,9 +135,22 @@ sufleur version delete-metadata @workspace/name@draft --key old-key
 
 # output schema
 sufleur version set-output-schema @workspace/name@draft --file ./working/output-schema.json
+
+# readme — replace from a file, inline string, or stdin (mutually exclusive)
+sufleur version set-readme @workspace/name@draft --file ./working/README.md
+sufleur version set-readme @workspace/name@draft --content "# Title\n\nBody"
+echo "# Piped" | sufleur version set-readme @workspace/name@draft --file -
 ```
 
 `set-metadata`'s two modes are mutually exclusive. Use `--from-file` when the YAML is the source of truth (it deletes any key not present in the file); use the typed flags for additive patches.
+
+To learn what a prompt does without dumping the whole version, fetch just the README:
+
+```bash
+sufleur version get-readme @workspace/name@draft
+```
+
+This prints the raw markdown to stdout — cheap to pipe into context.
 
 ## What the CLI cannot do — hand back to the human
 
@@ -186,6 +200,8 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Set metadata (patch) | `sufleur version set-metadata @workspace/name@draft --string KEY=VAL` |
 | Delete metadata key | `sufleur version delete-metadata @workspace/name@draft --key KEY` |
 | Set output schema | `sufleur version set-output-schema @workspace/name@draft --file ./schema.json` |
+| Read README | `sufleur version get-readme @workspace/name@version` |
+| Set README | `sufleur version set-readme @workspace/name@draft [--content STR \| --file PATH]` |
 | List files | `sufleur file list @workspace/name@draft` |
 | Create file | `sufleur file create @workspace/name@draft --file ./welcome.mustache` |
 | Update file | `sufleur file update @workspace/name@draft --name welcome --file ./welcome.mustache` |
