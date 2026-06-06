@@ -781,6 +781,68 @@ func TestFieldDescriptionWithQuotes(t *testing.T) {
 	}
 }
 
+func TestPyStringLiteral(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"plain", "abc", "'abc'"},
+		{"single quote", "it's", `'it\'s'`},
+		{"backslash", `a\b`, `'a\\b'`},
+		{"json escaped quote", `\"`, `'\\"'`},
+		{"newline", "a\nb", `'a\nb'`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := pyStringLiteral(tt.input)
+			if result != tt.expected {
+				t.Errorf("pyStringLiteral(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestOutputSchemaDescriptionWithQuotes is the regression test for MAN-207: an
+// output schema whose field descriptions contain a single quote (or a JSON-escaped
+// double quote) must still produce a valid json.loads('...') call rather than an
+// unterminated/corrupted Python string literal.
+func TestOutputSchemaDescriptionWithQuotes(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/sq",
+			Name:    "sq",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			OutputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"ref": map[string]interface{}{
+						"type":        "string",
+						"description": "a reference for 'XYZ'",
+					},
+					"dq": map[string]interface{}{
+						"type":        "string",
+						"description": `has "double" quotes`,
+					},
+				},
+			},
+			Files: []generator.PromptFile{
+				{Name: "userPrompt", Content: "Hi", IsEntrypoint: true},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	// The single quote must be backslash-escaped inside the literal, and the
+	// JSON-escaped double quote must have its backslash escaped so it survives
+	// Python's own string decoding.
+	assertContains(t, output, `\'XYZ\'`)
+	assertContains(t, output, `\\"double\\"`)
+}
+
 func TestPyMetadataValue(t *testing.T) {
 	tests := []struct {
 		name     string
