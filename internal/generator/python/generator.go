@@ -95,6 +95,7 @@ func (g *Generator) Generate(outFile string, prompts []generator.PromptData) err
 
 	tmpl, err := template.New("output").Funcs(template.FuncMap{
 		"pyMetadataValue": pyMetadataValue,
+		"pyDocstring":     pyDocstring,
 	}).Parse(pythonTemplate)
 	if err != nil {
 		return fmt.Errorf("parsing template: %w", err)
@@ -500,6 +501,16 @@ func extractMetadataValues(m map[string]interface{}) map[string]interface{} {
 }
 
 // pyMetadataValue formats a Go value as a Python literal.
+// pyDocstring makes an arbitrary string safe to embed inside a """...""" docstring.
+// User-authored descriptions (e.g. from {{@doc "..."}}) may contain double quotes
+// or backslashes; escaping both is the simplest transform that can never produce a
+// """ run or leave a trailing " that merges with the closing delimiter.
+func pyDocstring(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
+}
+
 func pyMetadataValue(v interface{}) string {
 	switch val := v.(type) {
 	case string:
@@ -559,7 +570,7 @@ class {{.Name}}(TypedDict):
 {{- range .Fields}}
     {{.Name}}: {{.Type}}
     {{- if .Description}}
-    """{{.Description}}"""
+    """{{pyDocstring .Description}}"""
     {{- end}}
 {{- end}}
 {{end}}
@@ -705,7 +716,7 @@ _draft_prompts: set[str] = {
 
 class _{{.PascalName}}Result:
     {{- if .Description}}
-    """{{.Description}}
+    """{{pyDocstring .Description}}
 
     Version: {{.Version}}
     """
