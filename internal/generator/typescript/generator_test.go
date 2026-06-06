@@ -478,6 +478,39 @@ func TestFieldDescriptions(t *testing.T) {
 	assertContains(t, output, "/** The user's full name */")
 }
 
+// TestOutputSchemaDescriptionWithQuotes is the TypeScript companion to MAN-207.
+// TS embeds the output schema JSON directly as a JS object literal (inner strings
+// are double-quoted), so a single quote in a description is just a literal char and
+// needs no escaping — this test guards against a regression that would change that.
+func TestOutputSchemaDescriptionWithQuotes(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/sq",
+			Name:    "sq",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			OutputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"ref": map[string]interface{}{
+						"type":        "string",
+						"description": "a reference for 'XYZ'",
+					},
+				},
+			},
+			Files: []generator.PromptFile{
+				{Name: "userPrompt", Content: "Hi", IsEntrypoint: true},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	// The single quote sits inside a double-quoted JSON/JS string, so it appears
+	// verbatim within the outputSchema object literal.
+	assertContains(t, output, `"description":"a reference for 'XYZ'"`)
+}
+
 func TestJsDocComment(t *testing.T) {
 	tests := []struct {
 		name     string

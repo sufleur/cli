@@ -96,6 +96,7 @@ func (g *Generator) Generate(outFile string, prompts []generator.PromptData) err
 	tmpl, err := template.New("output").Funcs(template.FuncMap{
 		"pyMetadataValue": pyMetadataValue,
 		"pyDocstring":     pyDocstring,
+		"pyStringLiteral": pyStringLiteral,
 	}).Parse(pythonTemplate)
 	if err != nil {
 		return fmt.Errorf("parsing template: %w", err)
@@ -511,6 +512,20 @@ func pyDocstring(s string) string {
 	return s
 }
 
+// pyStringLiteral renders s as a single-quoted Python string literal whose value
+// equals s exactly. Backslashes are escaped first so JSON escapes like \" survive
+// Python's own string-literal decoding, then single quotes (and any stray newlines)
+// are escaped so they can't terminate the literal. Used to embed marshalled output
+// schema JSON — which may contain ' or \" from field descriptions — into a
+// json.loads('...') call without producing a syntax error or corrupting the JSON.
+func pyStringLiteral(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `'`, `\'`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	return "'" + s + "'"
+}
+
 func pyMetadataValue(v interface{}) string {
 	switch val := v.(type) {
 	case string:
@@ -631,7 +646,7 @@ _metadata: dict[str, dict[str, Any]] = {
         "{{$k}}": {{pyMetadataValue $v}},
         {{- end}}
         {{- if .HasOutputSchema}}
-        "output_schema": json.loads('{{.OutputSchemaRaw}}'),
+        "output_schema": json.loads({{pyStringLiteral .OutputSchemaRaw}}),
         {{- end}}
         "version": "{{.Version}}",
     },
