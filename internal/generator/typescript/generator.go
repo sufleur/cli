@@ -69,6 +69,7 @@ func (g *Generator) Generate(outFile string, prompts []generator.PromptData) err
 
 	tmpl, err := template.New("output").Funcs(template.FuncMap{
 		"tsMetadataValue": tsMetadataValue,
+		"jsDocComment":    jsDocComment,
 	}).Parse(indexTemplate)
 	if err != nil {
 		return fmt.Errorf("parsing template: %w", err)
@@ -282,7 +283,7 @@ func objectToTS(schema map[string]interface{}, indent int) string {
 		if desc, ok := v["description"].(string); ok && desc != "" {
 			b.WriteString(innerIndent)
 			b.WriteString("/** ")
-			b.WriteString(desc)
+			b.WriteString(jsDocComment(desc))
 			b.WriteString(" */\n")
 		}
 
@@ -385,6 +386,14 @@ func unionToTSType(union interface{}, indent int) string {
 }
 
 // tsMetadataValue formats a Go value as a TypeScript literal.
+// jsDocComment makes an arbitrary string safe to embed inside a /** ... */ JSDoc
+// comment. User-authored descriptions (e.g. from {{@doc "..."}}) may contain the
+// */ sequence, which would close the comment early; breaking that sequence is the
+// only escaping a block comment needs.
+func jsDocComment(s string) string {
+	return strings.ReplaceAll(s, "*/", "*\\/")
+}
+
 func tsMetadataValue(v interface{}) string {
 	switch val := v.(type) {
 	case string:
@@ -610,7 +619,7 @@ interface PromptResult<N extends PromptName> {
 {{range .Prompts}}
 {{- if .Description}}
 /**
- * {{.Description}}
+ * {{jsDocComment .Description}}
  * @version {{.Version}}
  */
 {{- end}}

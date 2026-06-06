@@ -719,6 +719,68 @@ func TestPyTypeFromMetaEntry(t *testing.T) {
 	}
 }
 
+func TestPyDocstring(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"plain", "User name", "User name"},
+		{"quoted", `"User name"`, `\"User name\"`},
+		{"trailing quote", `name"`, `name\"`},
+		{"triple quote", `a"""b`, `a\"\"\"b`},
+		{"backslash", `a\b`, `a\\b`},
+		{"backslash then quote", `a\"b`, `a\\\"b`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := pyDocstring(tt.input)
+			if result != tt.expected {
+				t.Errorf("pyDocstring(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestFieldDescriptionWithQuotes is the regression test for MAN-206: a quoted
+// description must not produce a """"..."""" run that is a Python syntax error.
+func TestFieldDescriptionWithQuotes(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/desc-prompt",
+			Name:    "desc-prompt",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			Files: []generator.PromptFile{
+				{
+					Name:         "userPrompt",
+					Content:      "Hi {{name}}",
+					IsEntrypoint: true,
+					InputSchema: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{
+								"type":        "string",
+								"description": `"User name"`,
+							},
+						},
+						"required": []interface{}{"name"},
+					},
+				},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	// The escaped docstring is valid; the raw """"User name"""" must not appear.
+	assertContains(t, output, `"""\"User name\""""`)
+	if strings.Contains(output, `""""User name""""`) {
+		t.Errorf("output contains an unescaped quad-quote docstring (MAN-206):\n%s", output)
+	}
+}
+
 func TestPyMetadataValue(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -478,6 +478,60 @@ func TestFieldDescriptions(t *testing.T) {
 	assertContains(t, output, "/** The user's full name */")
 }
 
+func TestJsDocComment(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"plain", "User name", "User name"},
+		{"closing sequence", "ends a comment */ here", `ends a comment *\/ here`},
+		{"only delimiter", "*/", `*\/`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := jsDocComment(tt.input)
+			if result != tt.expected {
+				t.Errorf("jsDocComment(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestFieldDescriptionWithCommentClose is the TypeScript companion to MAN-206: a
+// description containing */ must not close the JSDoc comment early.
+func TestFieldDescriptionWithCommentClose(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/desc-prompt",
+			Name:    "desc-prompt",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			Files: []generator.PromptFile{
+				{
+					Name:         "userPrompt",
+					Content:      "Hi {{name}}",
+					IsEntrypoint: true,
+					InputSchema: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{
+								"type":        "string",
+								"description": "evil */ injection",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	assertContains(t, output, `/** evil *\/ injection */`)
+}
+
 func TestExtractMetadataValues(t *testing.T) {
 	input := map[string]interface{}{
 		"model":       map[string]interface{}{"type": "string", "value": "gpt-4o"},
