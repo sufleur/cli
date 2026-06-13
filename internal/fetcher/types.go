@@ -13,6 +13,7 @@ import (
 type Client interface {
 	ValidatePrompts(ctx context.Context, promptNames []string) error
 	FetchPromptVersion(ctx context.Context, promptName, constraint string, status *PromptVersionStatus) (*generator.PromptData, error)
+	ListCollectionPrompts(ctx context.Context, collectionName string) ([]string, error)
 }
 
 // JSON represents a JSON object scalar from the GraphQL schema.
@@ -99,6 +100,16 @@ type fetchPromptVersionQuery struct {
 		Description string
 		Version     *fetchPromptVersionResult `graphql:"version(constraint: $constraint, status: $status)"`
 	} `graphql:"prompt(promptName: $promptName)"`
+}
+
+// listCollectionPromptsQuery resolves the member prompts of a collection. The
+// collection name carries no "+" marker here — that is a CLI-only concern.
+type listCollectionPromptsQuery struct {
+	PromptCollection struct {
+		Prompts []struct {
+			Name string
+		}
+	} `graphql:"promptCollection(name: $name)"`
 }
 
 type promptFileResponse struct {

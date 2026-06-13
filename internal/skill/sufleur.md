@@ -53,6 +53,7 @@ Always use fully-qualified references:
 | `@workspace` | the workspace itself (used by `prompt list`) |
 | `@workspace/name` | a prompt |
 | `@workspace/name@<version>` | a specific version, where `<version>` is a semver string like `1.2.3` or the literal `draft` |
+| `@workspace/+name` | a **collection** (a group of prompts) — the `+` marks it as a collection; prompt names can never contain `+` |
 
 Never invent shorthand. Never assume the user wants the workspace from the previous command — always pass it explicitly.
 
@@ -152,14 +153,42 @@ sufleur version get-readme @workspace/name@draft
 
 This prints the raw markdown to stdout — cheap to pipe into context.
 
+## Collections
+
+A **collection** is a workspace-scoped group of prompts, referenced as `@workspace/+name`. Unlike prompts, collections have **no draft workflow** — every edit applies immediately.
+
+**Install a collection** — bring every prompt in it into the local project (only relevant when a `sufleur.yaml` manifest is in use):
+
+```bash
+sufleur add @workspace/+name
+```
+
+This adds each member prompt to `sufleur.yaml` under its own `@workspace/prompt` key (constraint `*`) and resolves them. Prompts already in the manifest are reported and skipped; pass `--force` to reset them to `*`.
+
+**Edit a collection** (authoring, requires login):
+
+```bash
+sufleur collection create @workspace/+name --description "..."   # new (private) collection
+sufleur collection get @workspace/+name                          # metadata + README
+sufleur collection list-prompts @workspace/+name                 # one @workspace/name per line
+sufleur collection link @workspace/+name @workspace/prompt       # add a prompt to the collection
+sufleur collection set-readme @workspace/+name --file ./README.md
+sufleur collection set-description @workspace/+name --content "..."
+```
+
+To work with the prompts inside a collection, list them and then use the normal prompt/version commands on each (`version dump`, etc.) — there is no bulk "dump collection".
+
+A prompt belongs to **at most one** collection. Linking a prompt that is already in a different collection moves it out of that one, so `collection link` refuses unless you pass `--force`.
+
 ## What the CLI cannot do — hand back to the human
 
-Two operations are intentionally human-only:
+These operations are intentionally human-only:
 
 * **Publishing a draft** (promoting it to a stable version).
-* **Changing prompt visibility** (PUBLIC ↔ PRIVATE).
+* **Changing prompt or collection visibility** (PUBLIC ↔ PRIVATE).
+* **Deleting a collection**, or **removing/unlinking a prompt from a collection** (these are destructive — only `link` is exposed, never an unlink).
 
-When a draft is ready for either, stop and summarise what changed. Tell the user to publish via the web UI when they're ready. Do not look for or attempt to use a `publish` or `visibility` command — they intentionally do not exist on the CLI.
+When a draft or collection is ready for any of these, stop and summarise what changed. Tell the user to act via the web UI when they're ready. Do not look for or attempt to use a `publish`, `visibility`, `delete`-collection, or `unlink` command — they intentionally do not exist on the CLI.
 
 ## File suffix convention
 
@@ -173,7 +202,7 @@ This means `dump → edit → push` round-trips cleanly without any name manglin
 
 ## Machine-readable output
 
-Every command in the agent surface (`prompt`, `version`, `file`, `me`) supports `--json`. Prefer it whenever you need to parse the output:
+Every command in the agent surface (`prompt`, `version`, `file`, `collection`, `me`) supports `--json`. Prefer it whenever you need to parse the output:
 
 ```bash
 sufleur version get @workspace/name@draft --json | jq '.files[].name'
@@ -209,5 +238,12 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Delete file | `sufleur file delete @workspace/name@draft --name welcome` |
 | Mark/clear entrypoint | `sufleur file set-entrypoint @workspace/name@draft --name welcome [--clear]` |
 | Render locally | `sufleur prompt render ./dir --entrypoint NAME --vars '{...}'` |
+| Install a collection | `sufleur add @workspace/+name` |
+| Create collection | `sufleur collection create @workspace/+name --description "..."` |
+| Inspect collection | `sufleur collection get @workspace/+name` |
+| List collection prompts | `sufleur collection list-prompts @workspace/+name` |
+| Link prompt to collection | `sufleur collection link @workspace/+name @workspace/prompt [--force]` |
+| Set collection README | `sufleur collection set-readme @workspace/+name [--content STR \| --file PATH]` |
+| Set collection description | `sufleur collection set-description @workspace/+name [--content STR \| --file PATH]` |
 
 Run `sufleur <command> --help` for the full flag list of any command.

@@ -21,6 +21,42 @@ func TestParse_Valid(t *testing.T) {
 	}
 }
 
+func TestParse_Collection(t *testing.T) {
+	ref, err := Parse("@acme/+onboarding")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ref.IsCollection {
+		t.Errorf("IsCollection = false, want true")
+	}
+	if ref.Workspace != "acme" {
+		t.Errorf("Workspace = %q, want %q", ref.Workspace, "acme")
+	}
+	if ref.Name != "onboarding" {
+		t.Errorf("Name = %q, want %q (the + must be stripped)", ref.Name, "onboarding")
+	}
+	if ref.Raw != "@acme/+onboarding" {
+		t.Errorf("Raw = %q, want original with +", ref.Raw)
+	}
+}
+
+func TestParse_PromptIsNotCollection(t *testing.T) {
+	ref, err := Parse("@acme/onboarding")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ref.IsCollection {
+		t.Errorf("IsCollection = true for a plain prompt, want false")
+	}
+}
+
+func TestParse_CollectionEmptyName(t *testing.T) {
+	_, err := Parse("@acme/+")
+	if err == nil {
+		t.Fatal("expected error for empty collection name, got nil")
+	}
+}
+
 func TestParse_MissingAtPrefix(t *testing.T) {
 	_, err := Parse("wtomas/my-prompt")
 	if err == nil {
@@ -101,11 +137,11 @@ func TestParseRef_EmptyVersion(t *testing.T) {
 
 func TestParseRef_MalformedInputs(t *testing.T) {
 	cases := []string{
-		"wtomas/my-prompt",       // missing @
-		"@/my-prompt@1.0.0",      // empty workspace
-		"@wtomas/@1.0.0",         // empty name
-		"@wtomas",                // missing slash
-		"@wtomas/my-prompt@",     // empty version
+		"wtomas/my-prompt",   // missing @
+		"@/my-prompt@1.0.0",  // empty workspace
+		"@wtomas/@1.0.0",     // empty name
+		"@wtomas",            // missing slash
+		"@wtomas/my-prompt@", // empty version
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) {

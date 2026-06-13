@@ -39,6 +39,7 @@ func init() {
 	rootCmd.AddCommand(promptCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(fileCmd)
+	rootCmd.AddCommand(collectionCmd)
 	rootCmd.AddCommand(skillCmd)
 }
 

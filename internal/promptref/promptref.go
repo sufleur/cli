@@ -8,11 +8,18 @@ import (
 // PromptRef represents a parsed workspace-scoped prompt reference. If the
 // input string includes an "@version" suffix, Version holds it; otherwise it
 // is empty.
+//
+// A "+" prefix on the name segment (e.g. "@ws/+onboarding") marks the
+// reference as a collection rather than a prompt. The "+" is a CLI-only type
+// marker: IsCollection is set and Name holds the bare backend name with the
+// "+" stripped, while Raw preserves the original input. The marker can never
+// collide with a real name because prompt and collection names disallow "+".
 type PromptRef struct {
-	Workspace string // "wtomas" (no @ prefix)
-	Name      string // "my-prompt"
-	Version   string // "1.2.3" or "draft", "" if not specified
-	Raw       string // the original string passed in
+	Workspace    string // "wtomas" (no @ prefix)
+	Name         string // "my-prompt" (collection marker "+" stripped)
+	Version      string // "1.2.3" or "draft", "" if not specified
+	IsCollection bool   // true when the name segment was "+"-prefixed
+	Raw          string // the original string passed in
 }
 
 // Parse splits a prompt key like "@workspace/prompt-name" into a PromptRef.
@@ -69,10 +76,22 @@ func parse(key string) (PromptRef, error) {
 		return PromptRef{}, fmt.Errorf("prompt key %q has empty prompt name", key)
 	}
 
+	// A leading "+" on the name segment marks a collection. Strip it so Name
+	// is the bare backend identifier; Raw keeps the original form.
+	isCollection := false
+	if strings.HasPrefix(name, "+") {
+		isCollection = true
+		name = name[1:]
+		if name == "" {
+			return PromptRef{}, fmt.Errorf("collection key %q has empty name after %q", key, "+")
+		}
+	}
+
 	return PromptRef{
-		Workspace: workspace,
-		Name:      name,
-		Version:   version,
-		Raw:       key,
+		Workspace:    workspace,
+		Name:         name,
+		Version:      version,
+		IsCollection: isCollection,
+		Raw:          key,
 	}, nil
 }

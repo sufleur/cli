@@ -22,6 +22,7 @@ Or grab a binary directly from the GitHub releases page.
 | ------- | ------- |
 | `sufleur init` | Scaffold `sufleur.yaml` |
 | `sufleur add @ws/name [range]` | Add a prompt, fetch it, update the lockfile |
+| `sufleur add @ws/+collection` | Add **every** prompt in a collection (each under its own `@ws/name` key), then install |
 | `sufleur install [--frozen]` | Resolve the manifest, fetch what's missing, refresh the lockfile |
 | `sufleur update [@ws/name]` | Re-resolve one or all prompts |
 | `sufleur generate` | Regenerate the typed `.ts` / `.py` file from the lockfile |
@@ -36,9 +37,21 @@ The generated file inlines every prompt (no runtime fetches) and exposes `getPro
 | Prompts | `prompt create / get / list / update` |
 | Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-readme / get-readme / dump` |
 | Files | `file create / update / delete / list / set-entrypoint` |
+| Collections | `collection create / get / list-prompts / link / set-readme / set-description` |
 | Local render | `prompt render <dir> --entrypoint <name> --vars '{...}'` |
 
 Every authoring command accepts `--json` for machine-readable output. See the wrapper READMEs for the full table.
+
+### Collections
+
+A **collection** is a workspace-scoped group of prompts, referenced as `@workspace/+name` — the `+` marks it as a collection (prompt names can never contain `+`). Collections have no draft→publish workflow; every edit is applied immediately.
+
+- `sufleur add @ws/+name` — install the collection: add each member prompt to `sufleur.yaml` under its own `@ws/prompt` key (constraint `*`) and resolve. Prompts already present are reported and skipped (use `--force` to reset them to `*`).
+- `sufleur collection create @ws/+name [--description ...]` — create a new (private) collection.
+- `sufleur collection list-prompts @ws/+name` — print the member prompts, one `@ws/name` per line (pipe into `version dump` / `add`).
+- `sufleur collection link @ws/+name @ws/prompt [--force]` — add a prompt to a collection. A prompt belongs to at most one collection, so moving one already in another collection requires `--force`.
+- `sufleur collection set-readme @ws/+name [--content ... | --file ...]` / `set-description ...` — document the collection.
+- `sufleur collection get @ws/+name` — show metadata + README.
 
 ## For coding agents
 

@@ -148,6 +148,24 @@ func (c *client) FetchPromptVersion(ctx context.Context, promptName, constraint 
 	}, nil
 }
 
+// ListCollectionPrompts returns the bare names of the prompts in a collection.
+// An unknown collection surfaces as an error (the backend returns a not-found
+// GraphQL error). An empty collection returns an empty slice and no error.
+func (c *client) ListCollectionPrompts(ctx context.Context, collectionName string) ([]string, error) {
+	var q listCollectionPromptsQuery
+	variables := map[string]any{"name": GraphQLID(collectionName)}
+
+	if err := c.gql.Query(ctx, &q, variables); err != nil {
+		return nil, fmt.Errorf("fetching collection %q: %w", collectionName, err)
+	}
+
+	names := make([]string, 0, len(q.PromptCollection.Prompts))
+	for _, p := range q.PromptCollection.Prompts {
+		names = append(names, p.Name)
+	}
+	return names, nil
+}
+
 // sanitizeAlias converts a prompt name to a valid GraphQL alias.
 func sanitizeAlias(name string) string {
 	var b strings.Builder
