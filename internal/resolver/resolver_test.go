@@ -30,6 +30,10 @@ func (m *mockClient) ValidatePrompts(_ context.Context, _ []string) error {
 	return m.validateErr
 }
 
+func (m *mockClient) ListCollectionPrompts(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+
 func (m *mockClient) FetchPromptVersion(_ context.Context, promptName, _ string, status *fetcher.PromptVersionStatus) (*generator.PromptData, error) {
 	m.fetchCalls++
 	if m.lastStatus == nil {
