@@ -155,6 +155,7 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 
 | Command | What it does |
 | ------- | ------------ |
+| `workspace list` | List the workspaces you belong to, with your role |
 | `prompt create @ws/name --description "..."` | Create a new prompt in a workspace |
 | `prompt list @ws [--search ... --limit ... --offset ...]` | List prompts in a workspace |
 | `prompt get @ws/name` | Show one prompt's details |
