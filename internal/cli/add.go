@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -72,6 +73,13 @@ reported as skipped; pass --force to reset them to "*".`,
 			return fmt.Errorf("validating prompt: %w", err)
 		}
 
+		// Capture the manifest before mutating it so a failed resolve can roll
+		// it back, never leaving a half-written sufleur.yaml behind.
+		original, err := os.ReadFile("sufleur.yaml")
+		if err != nil {
+			return err
+		}
+
 		if cfg.Raw.Prompts == nil {
 			cfg.Raw.Prompts = make(map[string]string)
 		}
@@ -86,7 +94,7 @@ reported as skipped; pass --force to reset them to "*".`,
 			fmt.Printf("Added %s (alias for %s @ %s) to sufleur.yaml\n", aliasKey, ref.Raw, constraint)
 		}
 
-		return resolveAndReport(cmd.Context(), verbose)
+		return resolveOrRollback(cmd.Context(), verbose, original)
 	},
 }
 
@@ -122,6 +130,15 @@ func runCollectionAdd(cmd *cobra.Command, ref promptref.PromptRef, args []string
 		return nil
 	}
 
+	// Capture the manifest before mutating it so a failed resolve can roll it
+	// back. Adding a collection is all-or-nothing: if any member fails to
+	// resolve (e.g. it has no published version), sufleur.yaml is restored
+	// rather than left holding unresolvable entries.
+	original, err := os.ReadFile("sufleur.yaml")
+	if err != nil {
+		return err
+	}
+
 	if cfg.Raw.Prompts == nil {
 		cfg.Raw.Prompts = make(map[string]string)
 	}
@@ -150,7 +167,22 @@ func runCollectionAdd(cmd *cobra.Command, ref promptref.PromptRef, args []string
 		fmt.Printf("  = %s (already present, skipped)\n", k)
 	}
 
-	return resolveAndReport(cmd.Context(), verbose)
+	return resolveOrRollback(cmd.Context(), verbose, original)
+}
+
+// resolveOrRollback runs the resolver over sufleur.yaml and, if resolution
+// fails, restores the manifest to the bytes captured before it was modified.
+// This keeps `add` atomic: a failed resolve never leaves sufleur.yaml holding
+// entries that cannot be installed. The lockfile is written by the resolver
+// only after every prompt resolves, so it needs no rollback here.
+func resolveOrRollback(ctx context.Context, verbose bool, original []byte) error {
+	if err := resolveAndReport(ctx, verbose); err != nil {
+		if rbErr := os.WriteFile("sufleur.yaml", original, 0644); rbErr != nil {
+			return fmt.Errorf("%w\n(additionally, restoring sufleur.yaml failed: %v)", err, rbErr)
+		}
+		return fmt.Errorf("%w\nsufleur.yaml was left unchanged", err)
+	}
+	return nil
 }
 
 // resolveAndReport runs the resolver over sufleur.yaml and prints the per-prompt
