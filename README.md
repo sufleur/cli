@@ -34,6 +34,7 @@ The generated file inlines every prompt (no runtime fetches) and exposes `getPro
 | Group | Commands |
 | ----- | -------- |
 | Auth | `login`, `logout`, `me` |
+| Workspaces | `workspace list` |
 | Prompts | `prompt create / get / list / update` |
 | Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-readme / get-readme / dump` |
 | Files | `file create / update / delete / list / set-entrypoint` |
