@@ -56,12 +56,13 @@ var removeCmd = &cobra.Command{
 					removedPackage = alias.Raw
 				}
 				stillReferenced := false
-				for _, rp := range lf.Resolved {
+				for otherAlias, rp := range lf.Resolved {
 					pkg := rp.Package
 					if pkg == "" {
-						// Resolve the alias key to find its package — this
-						// happens when a non-aliased entry shares the
-						// underlying package by being itself.
+						// A non-aliased entry has no explicit package; its
+						// backing package is its own alias key. Resolve it so
+						// such entries are counted as referencing the package.
+						pkg = otherAlias
 					}
 					if pkg == removedPackage && rp.Version == removed.Version {
 						stillReferenced = true

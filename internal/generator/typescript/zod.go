@@ -9,7 +9,7 @@ import (
 
 // jsonSchemaToZod converts a JSON Schema (as a map) into Zod TypeScript source code.
 func jsonSchemaToZod(schema map[string]interface{}, indent int) string {
-	if schema == nil || len(schema) == 0 {
+	if len(schema) == 0 {
 		return "z.record(z.unknown())"
 	}
 

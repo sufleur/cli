@@ -24,7 +24,7 @@ type pydanticField struct {
 // class definitions. It returns the concatenated class definitions (leaf-first)
 // and the top-level class name (or inline type like "str" for primitives).
 func jsonSchemaToPydantic(schema map[string]interface{}, className string) (models string, topClassName string) {
-	if schema == nil || len(schema) == 0 {
+	if len(schema) == 0 {
 		return "", "dict[str, Any]"
 	}
 
@@ -41,7 +41,7 @@ func jsonSchemaToPydantic(schema map[string]interface{}, className string) (mode
 // schemaToPydanticType recursively converts a JSON Schema node to a Python type
 // string, accumulating pydanticClass definitions along the way.
 func schemaToPydanticType(schema map[string]interface{}, className string, classes *[]pydanticClass) string {
-	if schema == nil || len(schema) == 0 {
+	if len(schema) == 0 {
 		return "dict[str, Any]"
 	}
 
