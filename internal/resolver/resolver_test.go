@@ -233,8 +233,12 @@ func TestInstall_CorruptedCache_Refetches(t *testing.T) {
 
 	// Write corrupted cache with sanitized ref key
 	cacheDir := filepath.Join(dir, ".sufleur")
-	os.MkdirAll(cacheDir, 0755)
-	os.WriteFile(filepath.Join(cacheDir, "@test__greeting.json"), []byte(`{"name":"greeting","version":"WRONG"}`), 0644)
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		t.Fatalf("creating cache dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "@test__greeting.json"), []byte(`{"name":"greeting","version":"WRONG"}`), 0644); err != nil {
+		t.Fatalf("writing corrupted cache: %v", err)
+	}
 
 	mock := &mockClient{
 		prompts: map[string]*generator.PromptData{

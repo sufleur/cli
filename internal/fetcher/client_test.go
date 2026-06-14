@@ -13,7 +13,7 @@ import (
 func TestValidatePrompts_AllValid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": map[string]any{
 				"prompt_foo": map[string]any{"name": "foo"},
 				"prompt_bar": map[string]any{"name": "bar"},
@@ -39,7 +39,7 @@ func TestValidatePrompts_SomeMissing(t *testing.T) {
 				{"message": "not found", "path": ["prompt_baz"]}
 			]
 		}`
-		w.Write([]byte(resp))
+		_, _ = w.Write([]byte(resp))
 	}))
 	defer ts.Close()
 
@@ -109,7 +109,7 @@ func TestFetchPromptVersion_Success(t *testing.T) {
 				}
 			}
 		}`
-		w.Write([]byte(resp))
+		_, _ = w.Write([]byte(resp))
 	}))
 	defer ts.Close()
 
@@ -171,7 +171,7 @@ func TestFetchPromptVersion_NoMatchingVersion(t *testing.T) {
 				}
 			}
 		}`
-		w.Write([]byte(resp))
+		_, _ = w.Write([]byte(resp))
 	}))
 	defer ts.Close()
 
@@ -209,7 +209,7 @@ func TestFetchPromptVersion_SchemaWarnings(t *testing.T) {
 				}
 			}
 		}`
-		w.Write([]byte(resp))
+		_, _ = w.Write([]byte(resp))
 	}))
 	defer ts.Close()
 
@@ -263,7 +263,7 @@ func TestFetchPromptVersion_WithOutputSchema(t *testing.T) {
 				}
 			}
 		}`
-		w.Write([]byte(resp))
+		_, _ = w.Write([]byte(resp))
 	}))
 	defer ts.Close()
 
@@ -299,7 +299,7 @@ func TestFetchPromptVersion_NotFound(t *testing.T) {
 			"data": {"prompt": null},
 			"errors": [{"message": "Prompt not found", "path": ["prompt"]}]
 		}`
-		w.Write([]byte(resp))
+		_, _ = w.Write([]byte(resp))
 	}))
 	defer ts.Close()
 
@@ -317,7 +317,7 @@ func TestClient_AuthHeader(t *testing.T) {
 			t.Errorf("expected Authorization 'Bearer test-api-key', got %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": map[string]any{
 				"prompt_hello": map[string]any{"name": "hello"},
 			},
@@ -335,7 +335,7 @@ func TestClient_XClientHeader(t *testing.T) {
 			t.Errorf("expected X-Client 'cli', got %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": map[string]any{
 				"prompt_hello": map[string]any{"name": "hello"},
 			},
@@ -358,7 +358,7 @@ func TestClient_WorkspaceHeader(t *testing.T) {
 			t.Errorf("expected Authorization 'Bearer ws-key', got %q", gotAuth)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": map[string]any{
 				"prompt_hello": map[string]any{"name": "hello"},
 			},
@@ -376,7 +376,7 @@ func TestClient_NoWorkspaceHeader_WhenEmpty(t *testing.T) {
 			t.Errorf("expected no X-Workspace header, got %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": map[string]any{
 				"prompt_hello": map[string]any{"name": "hello"},
 			},

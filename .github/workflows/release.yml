@@ -5,8 +5,27 @@ on:
     tags: ["v*"]
 
 jobs:
+  verify:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test
+        run: go test ./...
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+
   build-binaries:
     name: Build binaries (goreleaser)
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: write
