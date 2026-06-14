@@ -57,6 +57,8 @@ Always use fully-qualified references:
 
 Never invent shorthand. Never assume the user wants the workspace from the previous command — always pass it explicitly.
 
+If you don't know which `@workspace` to address, run `sufleur workspace list` to see the workspaces the authenticated user belongs to (with their role in each). Add `--json` to consume it programmatically.
+
 ## Draft-first workflow
 
 Published versions are immutable from the CLI's perspective; the backend rejects writes to them. You operate **exclusively on draft versions**.
