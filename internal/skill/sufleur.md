@@ -216,6 +216,7 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Task | Command |
 |------|---------|
 | Check identity | `sufleur me` |
+| List your workspaces | `sufleur workspace list` |
 | List prompts | `sufleur prompt list @workspace` |
 | Inspect prompt | `sufleur prompt get @workspace/name` |
 | Create prompt | `sufleur prompt create @workspace/name --description "..."` |

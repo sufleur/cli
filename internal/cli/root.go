@@ -36,6 +36,7 @@ func init() {
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(logoutCmd)
 	rootCmd.AddCommand(meCmd)
+	rootCmd.AddCommand(workspaceCmd)
 	rootCmd.AddCommand(promptCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(fileCmd)
