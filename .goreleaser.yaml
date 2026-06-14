@@ -2,7 +2,7 @@ version: 2
 
 # Drives both the archive prefix and (more importantly) the dist/ build ID prefix
 # that wrappers/pip/hatch_build.py reads. Without this, goreleaser falls back to
-# the working-directory name ("sufleur-cli") and the pip hook can't find binaries.
+# the working-directory name ("cli") and the pip hook can't find binaries.
 project_name: sufleur
 
 builds:
