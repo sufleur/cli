@@ -28,7 +28,10 @@ release:
 	cd wrappers/pip && hatch version $(VERSION)
 	git add wrappers/npm/package.json wrappers/pip/src/sufleur_cli/__init__.py
 	git commit -m "release: v$(VERSION)"
-	git tag v$(VERSION)
+	# Annotated tag: `git push --follow-tags` only pushes annotated/signed tags,
+	# so a lightweight `git tag` would never reach origin and release.yml
+	# (triggered by the tag push) would never fire.
+	git tag -a v$(VERSION) -m "release v$(VERSION)"
 	git push --follow-tags origin main
 	@echo "tagged v$(VERSION) — pushed to origin. CI release.yml is now building and publishing."
 
