@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/cbroglie/mustache"
+	"github.com/sufleur/cli/internal/generator"
 )
 
 // PromptDir holds templates and the optional output schema loaded from a
@@ -99,7 +100,7 @@ func (p *PromptDir) Render(entrypoint string, vars map[string]any) (string, erro
 // schema body. Mirrors internal/generator.ResolveDirectives so behavior is
 // identical to what the codegen path applies.
 func (p *PromptDir) substituteDirectives(content string) string {
-	if !strings.Contains(content, "{{@") {
+	if !strings.Contains(content, "@outputSchema") {
 		return content
 	}
 	var replacement string
@@ -109,5 +110,5 @@ func (p *PromptDir) substituteDirectives(content string) string {
 			replacement = string(raw)
 		}
 	}
-	return strings.ReplaceAll(content, "{{@outputSchema}}", replacement)
+	return generator.ReplaceOutputSchemaDirective(content, replacement)
 }

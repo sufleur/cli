@@ -92,3 +92,37 @@ func TestResolveDirectives_MultipleOccurrences(t *testing.T) {
 		t.Errorf("expected 2 replacements, got %d", count)
 	}
 }
+
+func TestResolveDirectives_WhitespaceTolerant(t *testing.T) {
+	pd := PromptData{
+		OutputSchema: map[string]interface{}{"type": "string"},
+	}
+
+	for _, content := range []string{
+		"a {{ @outputSchema }} b",
+		"a {{@outputSchema }} b",
+		"a {{  @outputSchema  }} b",
+		"a {{\t@outputSchema\t}} b",
+	} {
+		result := ResolveDirectives(content, pd)
+		if strings.Contains(result, "@outputSchema") {
+			t.Errorf("directive not replaced in %q -> %q", content, result)
+		}
+		if !strings.Contains(result, `"type": "string"`) {
+			t.Errorf("schema not injected in %q -> %q", content, result)
+		}
+	}
+}
+
+func TestResolveDirectives_DollarKeysLiteral(t *testing.T) {
+	// $-prefixed JSON Schema keys ($ref/$defs/$schema) must be injected verbatim;
+	// a non-literal replace would treat them as submatch expansions and drop them.
+	pd := PromptData{
+		OutputSchema: map[string]interface{}{"$ref": "#/$defs/User"},
+	}
+
+	result := ResolveDirectives("{{@outputSchema}}", pd)
+	if !strings.Contains(result, `"$ref": "#/$defs/User"`) {
+		t.Errorf("$-keys not injected literally: %q", result)
+	}
+}

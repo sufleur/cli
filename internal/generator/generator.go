@@ -3,6 +3,7 @@ package generator
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 )
 
@@ -40,10 +41,21 @@ type Generator interface {
 	Generate(outFile string, prompts []PromptData) error
 }
 
+// outputSchemaDirective matches the {{@outputSchema}} directive, tolerating
+// whitespace inside the braces ({{ @outputSchema }}).
+var outputSchemaDirective = regexp.MustCompile(`\{\{\s*@outputSchema\s*\}\}`)
+
+// ReplaceOutputSchemaDirective replaces every {{@outputSchema}} directive with
+// replacement, inserted literally (no $-expansion). Shared with internal/render
+// so local rendering and codegen resolve the directive identically.
+func ReplaceOutputSchemaDirective(content, replacement string) string {
+	return outputSchemaDirective.ReplaceAllLiteralString(content, replacement)
+}
+
 // ResolveDirectives substitutes platform directives ({{@...}}) in template content
 // at codegen time. The engineer's runtime never sees these directives.
 func ResolveDirectives(content string, pd PromptData) string {
-	if !strings.Contains(content, "{{@") {
+	if !strings.Contains(content, "@outputSchema") {
 		return content
 	}
 
@@ -55,6 +67,5 @@ func ResolveDirectives(content string, pd PromptData) string {
 		}
 	}
 
-	content = strings.ReplaceAll(content, "{{@outputSchema}}", replacement)
-	return content
+	return ReplaceOutputSchemaDirective(content, replacement)
 }

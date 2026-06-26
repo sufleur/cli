@@ -55,7 +55,7 @@ func TestLoad_NoSchema(t *testing.T) {
 
 func TestRender_BasicVarsAndPartials(t *testing.T) {
 	dir := writeFiles(t, map[string]string{
-		"entry":   "Hello {{name}}! {{>greeting}}",
+		"entry":    "Hello {{name}}! {{>greeting}}",
 		"greeting": "Welcome to {{place}}.",
 	})
 	p, _ := Load(dir)
@@ -99,6 +99,24 @@ func TestRender_OutputSchemaSubstitution(t *testing.T) {
 	}
 	if !strings.Contains(out, `"type": "object"`) || !strings.Contains(out, `"required":`) {
 		t.Errorf("schema not injected as JSON: %q", out)
+	}
+}
+
+func TestRender_OutputSchemaWhitespaceTolerant(t *testing.T) {
+	dir := writeFiles(t, map[string]string{"entry": "a {{ @outputSchema }} b"})
+	if err := os.WriteFile(filepath.Join(dir, "output-schema.json"), []byte(`{"type":"object"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := Load(dir)
+	out, err := p.Render("entry", nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, `"type": "object"`) {
+		t.Errorf("spaced directive not substituted: %q", out)
+	}
+	if strings.Contains(out, "@outputSchema") {
+		t.Errorf("directive left in output: %q", out)
 	}
 }
 
