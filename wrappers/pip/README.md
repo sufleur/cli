@@ -175,6 +175,15 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `file update @ws/name@draft --name X [--file ...] [--rename Y]` | Replace content and/or rename |
 | `file delete @ws/name@draft --name X` | Delete a file |
 | `file set-entrypoint @ws/name@draft --name X [--clear]` | Mark (or unmark) a file as an entrypoint |
+| `eval get @ws/name@version [--file PATH]` | Print the version's eval YAML (skeleton if none) |
+| `eval validate @ws/name@version --file PATH` | Parse + type-check an eval YAML; saves nothing |
+| `eval push @ws/name@version --file PATH` | Validate, then save the eval |
+| `eval delete @ws/name@version` | Remove the eval from a version |
+| `eval run @ws/name@version [--watch]` | Enqueue a run; `--watch` streams to completion (CI gate) |
+| `eval runs @ws/name@version` | List recent runs, newest first |
+| `eval show <run-id>` / `eval watch <run-id>` | Inspect or follow a single run |
+
+An **eval** scores a prompt version against a dataset — judges, CEL assertions, and a passing threshold. Datasets are created in the web app and referenced from the eval YAML via `dataset.ref`; the CLI does not author them. Full guide: <https://sufleur.com/docs/evals>.
 
 ### Render before publishing
 
