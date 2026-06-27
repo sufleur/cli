@@ -38,6 +38,7 @@ The generated file inlines every prompt (no runtime fetches) and exposes `getPro
 | Prompts | `prompt create / get / list / update` |
 | Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-readme / get-readme / dump` |
 | Files | `file create / update / delete / list / set-entrypoint` |
+| Evals | `eval get / validate / push / delete / run / runs / show / watch` |
 | Collections | `collection create / get / list-prompts / link / set-readme / set-description` |
 | Local render | `prompt render <dir> --entrypoint <name> --vars '{...}'` |
 
@@ -53,6 +54,18 @@ A **collection** is a workspace-scoped group of prompts, referenced as `@workspa
 - `sufleur collection link @ws/+name @ws/prompt [--force]` — add a prompt to a collection. A prompt belongs to at most one collection, so moving one already in another collection requires `--force`.
 - `sufleur collection set-readme @ws/+name [--content ... | --file ...]` / `set-description ...` — document the collection.
 - `sufleur collection get @ws/+name` — show metadata + README.
+
+### Evals
+
+An **eval** scores a prompt version against a dataset — it pins the dataset, the candidate's provider/model/params, optional LLM judges, [CEL](https://github.com/google/cel-spec) assertions over the output, and a passing threshold. Evals are authored as YAML on a draft version; the loop mirrors prompt editing:
+
+- `sufleur eval get @ws/name@draft --file ./eval.yaml` — dump the current eval YAML (a ready-to-edit skeleton if none exists).
+- `sufleur eval validate @ws/name@draft --file ./eval.yaml` — parse and type-check; saves nothing.
+- `sufleur eval push @ws/name@draft --file ./eval.yaml` — validate, then save.
+- `sufleur eval run @ws/name@draft [--watch]` — enqueue a run; with `--watch` it streams to completion and exits non-zero on a failing verdict, so it works as a CI gate.
+- `sufleur eval runs / show <id> / watch <id>` — list, inspect, and follow runs.
+
+Datasets are created and populated in the web app and referenced from the eval YAML via `dataset.ref`; the CLI does not author them. Full guide: <https://sufleur.com/docs/evals> (and <https://sufleur.com/docs/datasets>).
 
 ## For coding agents
 
