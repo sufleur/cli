@@ -97,6 +97,7 @@ Produces:
   output-schema.json           # absent if the version has no schema
   README.md                    # always present (empty if never set)
   metadata.yaml                # flat key→value, "{}" when empty
+  eval.yaml                    # the version's eval config (skeleton if none)
 ```
 
 ### 2. Edit files locally
@@ -155,6 +156,77 @@ sufleur version get-readme @workspace/name@draft
 
 This prints the raw markdown to stdout — cheap to pipe into context.
 
+## Evals
+
+An **eval** is a YAML definition attached to a specific prompt **version** (addressed by the same `@workspace/name@version` ref). It pins a dataset, the candidate prompt's provider/model/params and input mapping, optional LLM **judges**, **assertions** over the output, and a passing threshold. Running it executes the candidate over every dataset case and reports a pass-rate and a verdict. There is exactly one eval per version.
+
+The backend is the source of truth for the schema — run `sufleur eval get @workspace/name@version` to print the current definition (a complete, editable skeleton when none exists yet) rather than authoring blind. The top-level shape:
+
+```yaml
+description: extraction quality
+dataset:
+  ref: "@workspace/dataset@2.0.0"   # dataset version to run against; null until set
+prompt:
+  provider: anthropic                # lowercase: anthropic|openai|google|mistral|deepseek|xai|groq|together
+  model: claude-sonnet-4-5
+  params: { temperature: 0 }
+  inputMapping:
+    files:
+      - file: userPrompt
+        role: user                   # user|system
+    inputs:
+      question: case.question        # CEL over the dataset case
+judges:
+  - alias: quality
+    prompt: "@workspace/judge@1.0.0"
+    provider: openai
+    model: gpt-4o
+    inputMapping:
+      inputs: { answer: output.answer }
+assertions:
+  - kind: schema                     # output conforms to the version's output schema
+  - kind: expression                 # a CEL boolean
+    expression: "judge.quality.score > 0.7"
+verdict:
+  passingThreshold: 0.8              # 0–1; omit/null for no gate
+```
+
+Provider tokens are **lowercase** in the YAML. Check which providers a workspace has configured (an eval can only run against those) with `sufleur workspace providers @workspace` — add `--models` to also list each provider's available models.
+
+### Local loop: dump → edit → validate → push
+
+```bash
+sufleur eval get @workspace/name@draft                            # print the current eval YAML
+sufleur eval get @workspace/name@draft --file ./eval.yaml         # …or write it to a file
+sufleur eval validate @workspace/name@draft --file ./eval.yaml    # parse + type-check; nothing saved
+sufleur eval push @workspace/name@draft --file ./eval.yaml        # validate, then save
+sufleur eval delete @workspace/name@draft                         # remove the eval
+```
+
+`version dump … --to ./working` also writes `./working/eval.yaml`, so a dumped directory is a complete working copy you can edit and `eval push` from.
+
+**Diagnostics.** Both `validate` and `push` report three severities:
+
+* **error** — a blocking structural problem (bad syntax, unresolved ref, invalid value). `push` refuses and changes nothing; `validate` exits non-zero.
+* **note** — a non-blocking issue (a failed type-check, an unavailable model). `push` still saves the eval, but it won't run cleanly until the note is resolved.
+* **warning** — advisory only.
+
+Run `eval validate` and clear any blocking errors before `eval push`.
+
+### Running and inspecting
+
+```bash
+sufleur eval run @workspace/name@draft                # enqueue a run; prints the run id
+sufleur eval run @workspace/name@draft --watch        # …and stream progress to completion
+sufleur eval runs @workspace/name@draft               # list recent runs (newest first)
+sufleur eval show <run-id>                            # one run's status, verdict, score, timing
+sufleur eval watch <run-id>                           # follow an in-flight run to completion
+```
+
+A run needs (1) a pinned `dataset.ref` and (2) the candidate and judge providers configured in the workspace; `eval run` errors clearly if either is missing. A run is an immutable snapshot of the eval config — to change what runs, edit `eval.yaml` and `eval push` again.
+
+**Exit codes (for CI).** `eval run --watch` and `eval watch` exit `0` when the run passes (or has no passing threshold), and non-zero when the verdict fails, the run errors, or the watch times out. Without `--watch`, `eval run` returns as soon as the run is enqueued.
+
 ## Collections
 
 A **collection** is a workspace-scoped group of prompts, referenced as `@workspace/+name`. Unlike prompts, collections have **no draft workflow** — every edit applies immediately.
@@ -189,8 +261,9 @@ These operations are intentionally human-only:
 * **Publishing a draft** (promoting it to a stable version).
 * **Changing prompt or collection visibility** (PUBLIC ↔ PRIVATE).
 * **Deleting a collection**, or **removing/unlinking a prompt from a collection** (these are destructive — only `link` is exposed, never an unlink).
+* **Configuring AI provider credentials** (adding or removing API keys). The CLI can *list* a workspace's providers (`workspace providers @workspace`) so you know what an eval can run against, but never add or change them.
 
-When a draft or collection is ready for any of these, stop and summarise what changed. Tell the user to act via the web UI when they're ready. Do not look for or attempt to use a `publish`, `visibility`, `delete`-collection, or `unlink` command — they intentionally do not exist on the CLI.
+When a draft or collection is ready for any of these, stop and summarise what changed. Tell the user to act via the web UI when they're ready. Do not look for or attempt to use a `publish`, `visibility`, `delete`-collection, `unlink`, or provider-credential command — they intentionally do not exist on the CLI.
 
 ## File suffix convention
 
@@ -204,7 +277,7 @@ This means `dump → edit → push` round-trips cleanly without any name manglin
 
 ## Machine-readable output
 
-Every command in the agent surface (`prompt`, `version`, `file`, `collection`, `me`) supports `--json`. Prefer it whenever you need to parse the output:
+Every command in the agent surface (`prompt`, `version`, `file`, `eval`, `collection`, `workspace`, `me`) supports `--json`. Prefer it whenever you need to parse the output:
 
 ```bash
 sufleur version get @workspace/name@draft --json | jq '.files[].name'
@@ -241,6 +314,15 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Delete file | `sufleur file delete @workspace/name@draft --name welcome` |
 | Mark/clear entrypoint | `sufleur file set-entrypoint @workspace/name@draft --name welcome [--clear]` |
 | Render locally | `sufleur prompt render ./dir --entrypoint NAME --vars '{...}'` |
+| Get eval YAML | `sufleur eval get @workspace/name@version [--file PATH]` |
+| Validate eval | `sufleur eval validate @workspace/name@draft --file ./eval.yaml` |
+| Push eval | `sufleur eval push @workspace/name@draft --file ./eval.yaml` |
+| Delete eval | `sufleur eval delete @workspace/name@draft` |
+| Run eval | `sufleur eval run @workspace/name@version [--watch]` |
+| List eval runs | `sufleur eval runs @workspace/name@version [--take N --skip N]` |
+| Show eval run | `sufleur eval show <run-id>` |
+| Watch eval run | `sufleur eval watch <run-id>` |
+| List providers | `sufleur workspace providers @workspace [--models]` |
 | Install a collection | `sufleur add @workspace/+name` |
 | Create collection | `sufleur collection create @workspace/+name --description "..."` |
 | Inspect collection | `sufleur collection get @workspace/+name` |
