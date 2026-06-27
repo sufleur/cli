@@ -24,6 +24,8 @@ var versionDumpCmd = &cobra.Command{
   <dir>/output-schema.json    pretty-printed JSON; omitted if the version has no schema
   <dir>/README.md             raw markdown; always written (empty if never set)
   <dir>/metadata.yaml         flat key-value YAML; "{}" if metadata is empty
+  <dir>/eval.yaml             the version's eval config as YAML; always written
+                              (a complete skeleton if no eval is configured)
 
 The directory is created if it doesn't exist. Pass --force to overwrite a
 non-empty directory; otherwise dump aborts if the target already has files.`,
@@ -61,7 +63,17 @@ non-empty directory; otherwise dump aborts if the target already has files.`,
 			return err
 		}
 
-		if err := writeDump(dir, v); err != nil {
+		// Fetch the eval YAML before any disk write so a failure here doesn't
+		// leave a partial dump. The backend always returns a complete skeleton.
+		evalYAML, err := client.GetEvalYaml(cmd.Context(), ref.Workspace, ref.Name, ref.Version)
+		if err != nil {
+			if errors.Is(err, userapi.ErrBearerRejected) {
+				return fmt.Errorf("stored credentials are no longer valid — run `sufleur login` again")
+			}
+			return err
+		}
+
+		if err := writeDump(dir, v, evalYAML); err != nil {
 			return err
 		}
 
@@ -73,6 +85,7 @@ non-empty directory; otherwise dump aborts if the target already has files.`,
 				"hasOutputSchema": v.OutputSchema != nil,
 				"readmeBytes":     len(v.Readme),
 				"metadataKeys":    len(v.Metadata),
+				"evalBytes":       len(evalYAML),
 			})
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Dumped @%s/%s@%s to %s (%d files)\n",
@@ -100,7 +113,7 @@ func prepareDumpDir(dir string, force bool) error {
 	return nil
 }
 
-func writeDump(dir string, v *userapi.PromptVersion) error {
+func writeDump(dir string, v *userapi.PromptVersion, evalYAML string) error {
 	filesDir := filepath.Join(dir, "files")
 	if err := os.MkdirAll(filesDir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", filesDir, err)
@@ -143,6 +156,15 @@ func writeDump(dir string, v *userapi.PromptVersion) error {
 	}
 	if err := os.WriteFile(metadataPath, raw, 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", metadataPath, err)
+	}
+
+	evalPath := filepath.Join(dir, "eval.yaml")
+	evalRaw := []byte(evalYAML)
+	if len(evalRaw) == 0 || evalRaw[len(evalRaw)-1] != '\n' {
+		evalRaw = append(evalRaw, '\n')
+	}
+	if err := os.WriteFile(evalPath, evalRaw, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", evalPath, err)
 	}
 	return nil
 }
