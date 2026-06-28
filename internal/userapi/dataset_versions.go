@@ -171,30 +171,6 @@ func (c *Client) SetDatasetSchema(ctx context.Context, workspace, name, version 
 	return resp.Version, nil
 }
 
-// PublishDatasetVersion promotes the current draft to a published version,
-// assigning it version (a semver greater than the latest published). The
-// backend hard-gates this on every case validating against the final schema.
-func (c *Client) PublishDatasetVersion(ctx context.Context, workspace, name, version string) (*DatasetVersion, error) {
-	var resp struct {
-		Version *DatasetVersion `json:"publishDatasetVersion"`
-	}
-	err := c.Do(ctx, Request{
-		Query: "mutation PublishDatasetVersion($datasetName: ID!, $version: ID!) { publishDatasetVersion(datasetName: $datasetName, version: $version) { " + datasetVersionFields + " } }",
-		Variables: map[string]any{
-			"datasetName": name,
-			"version":     version,
-		},
-		Workspace: workspace,
-	}, &resp)
-	if err != nil {
-		return nil, err
-	}
-	if resp.Version == nil {
-		return nil, errMissingData("publishDatasetVersion")
-	}
-	return resp.Version, nil
-}
-
 // DeleteDatasetVersion deletes a draft version. The backend rejects deleting
 // published versions or any but the latest version, surfacing a GraphQL error.
 func (c *Client) DeleteDatasetVersion(ctx context.Context, workspace, name, version string) (bool, error) {

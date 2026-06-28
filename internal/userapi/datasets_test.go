@@ -67,35 +67,20 @@ func TestClient_GetDataset_IncludesVersions(t *testing.T) {
 	}
 }
 
-func TestClient_CreateDataset_OmitsEmptyOptionals(t *testing.T) {
+func TestClient_CreateDataset_OmitsEmptyDescription(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeReq(t, r)
 		if _, present := req.Variables["description"]; present {
 			t.Errorf("description should be absent when empty")
 		}
-		if _, present := req.Variables["visibility"]; present {
-			t.Errorf("visibility should be absent when empty")
+		if strings.Contains(req.Query, "$visibility") {
+			t.Errorf("createDataset mutation should not accept a visibility argument: %q", req.Query)
 		}
 		_, _ = w.Write([]byte(`{"data":{"createDataset":{"id":"d1","name":"orders","description":"","visibility":"PRIVATE","createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-12T10:23:45Z"}}}`))
 	}))
 	defer server.Close()
 
-	if _, err := New(server.URL, "u_test", false).CreateDataset(context.Background(), "acme", "orders", "", ""); err != nil {
-		t.Fatalf("CreateDataset: %v", err)
-	}
-}
-
-func TestClient_CreateDataset_SendsVisibility(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		req := decodeReq(t, r)
-		if req.Variables["visibility"] != "PUBLIC" {
-			t.Errorf("visibility = %v, want PUBLIC", req.Variables["visibility"])
-		}
-		_, _ = w.Write([]byte(`{"data":{"createDataset":{"id":"d1","name":"orders","description":"","visibility":"PUBLIC","createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-12T10:23:45Z"}}}`))
-	}))
-	defer server.Close()
-
-	if _, err := New(server.URL, "u_test", false).CreateDataset(context.Background(), "acme", "orders", "", "PUBLIC"); err != nil {
+	if _, err := New(server.URL, "u_test", false).CreateDataset(context.Background(), "acme", "orders", ""); err != nil {
 		t.Fatalf("CreateDataset: %v", err)
 	}
 }
@@ -142,25 +127,6 @@ func TestClient_SetDatasetSchema(t *testing.T) {
 	}
 	if v.Validation == nil || !v.Validation.Valid {
 		t.Errorf("validation = %+v", v.Validation)
-	}
-}
-
-func TestClient_PublishDatasetVersion(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		req := decodeReq(t, r)
-		if req.Variables["version"] != "1.0.0" {
-			t.Errorf("version = %v, want 1.0.0", req.Variables["version"])
-		}
-		_, _ = w.Write([]byte(`{"data":{"publishDatasetVersion":{"version":"1.0.0","status":"PUBLISHED","schema":{},"caseCount":5,"byteSize":10,"createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-12T10:23:45Z","validation":{"valid":true,"caseCount":5,"violations":[]}}}}`))
-	}))
-	defer server.Close()
-
-	v, err := New(server.URL, "u_test", false).PublishDatasetVersion(context.Background(), "acme", "orders", "1.0.0")
-	if err != nil {
-		t.Fatalf("PublishDatasetVersion: %v", err)
-	}
-	if v.Version != "1.0.0" || v.Status != "PUBLISHED" {
-		t.Errorf("got %+v", v)
 	}
 }
 

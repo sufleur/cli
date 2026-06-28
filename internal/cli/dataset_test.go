@@ -31,22 +31,6 @@ func TestParseDatasetRef(t *testing.T) {
 	})
 }
 
-func TestNormalizeVisibility(t *testing.T) {
-	cases := map[string]string{"": "", "private": "PRIVATE", "Public": "PUBLIC", "PUBLIC": "PUBLIC"}
-	for in, want := range cases {
-		got, err := normalizeVisibility(in)
-		if err != nil {
-			t.Errorf("normalizeVisibility(%q): %v", in, err)
-		}
-		if got != want {
-			t.Errorf("normalizeVisibility(%q) = %q, want %q", in, got, want)
-		}
-	}
-	if _, err := normalizeVisibility("secret"); err == nil {
-		t.Errorf("expected error for invalid visibility")
-	}
-}
-
 func TestCasesUploadFilename(t *testing.T) {
 	tests := []struct {
 		path, format, want string

@@ -77,23 +77,19 @@ func (c *Client) ListDatasets(ctx context.Context, workspace, search string, tak
 	return resp.Datasets, nil
 }
 
-// CreateDataset creates a new dataset (and its initial draft version).
-// description and visibility are optional; pass empty strings to omit them
-// (the backend defaults visibility to PRIVATE). visibility is the enum value
-// name, "PUBLIC" or "PRIVATE".
-func (c *Client) CreateDataset(ctx context.Context, workspace, name, description, visibility string) (*Dataset, error) {
+// CreateDataset creates a new dataset (and its initial draft version). The
+// description is optional; pass an empty string to omit it. New datasets are
+// created PRIVATE by the backend — visibility is changed only via the web app.
+func (c *Client) CreateDataset(ctx context.Context, workspace, name, description string) (*Dataset, error) {
 	vars := map[string]any{"name": name}
 	if description != "" {
 		vars["description"] = description
-	}
-	if visibility != "" {
-		vars["visibility"] = visibility
 	}
 	var resp struct {
 		Dataset *Dataset `json:"createDataset"`
 	}
 	err := c.Do(ctx, Request{
-		Query:     "mutation CreateDataset($name: String!, $description: String, $visibility: DatasetVisibility) { createDataset(name: $name, description: $description, visibility: $visibility) { " + datasetFields + " } }",
+		Query:     "mutation CreateDataset($name: String!, $description: String) { createDataset(name: $name, description: $description) { " + datasetFields + " } }",
 		Variables: vars,
 		Workspace: workspace,
 	}, &resp)
@@ -106,9 +102,8 @@ func (c *Client) CreateDataset(ctx context.Context, workspace, name, description
 	return resp.Dataset, nil
 }
 
-// UpdateDataset replaces the description on an existing dataset. Visibility
-// changes use UpdateDatasetVisibility (a separate, distinctly-permissioned
-// mutation).
+// UpdateDataset replaces the description on an existing dataset. Visibility is
+// not editable from the CLI — it is managed in the web app.
 func (c *Client) UpdateDataset(ctx context.Context, workspace, name, description string) (*Dataset, error) {
 	var resp struct {
 		Dataset *Dataset `json:"updateDataset"`
@@ -126,29 +121,6 @@ func (c *Client) UpdateDataset(ctx context.Context, workspace, name, description
 	}
 	if resp.Dataset == nil {
 		return nil, errMissingData("updateDataset")
-	}
-	return resp.Dataset, nil
-}
-
-// UpdateDatasetVisibility flips a dataset between PUBLIC and PRIVATE. visibility
-// is the enum value name, "PUBLIC" or "PRIVATE".
-func (c *Client) UpdateDatasetVisibility(ctx context.Context, workspace, name, visibility string) (*Dataset, error) {
-	var resp struct {
-		Dataset *Dataset `json:"updateDatasetVisibility"`
-	}
-	err := c.Do(ctx, Request{
-		Query: "mutation UpdateDatasetVisibility($datasetName: ID!, $visibility: DatasetVisibility!) { updateDatasetVisibility(datasetName: $datasetName, visibility: $visibility) { " + datasetFields + " } }",
-		Variables: map[string]any{
-			"datasetName": name,
-			"visibility":  visibility,
-		},
-		Workspace: workspace,
-	}, &resp)
-	if err != nil {
-		return nil, err
-	}
-	if resp.Dataset == nil {
-		return nil, errMissingData("updateDatasetVisibility")
 	}
 	return resp.Dataset, nil
 }

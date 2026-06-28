@@ -156,6 +156,73 @@ sufleur version get-readme @workspace/name@draft
 
 This prints the raw markdown to stdout — cheap to pipe into context.
 
+## Datasets
+
+A **dataset** is a workspace-scoped, versioned collection of **cases** — one JSON object per case — plus a JSON Schema describing their shape. Datasets are what evals run against: each case becomes one trial of the candidate prompt. Address a dataset as `@workspace/name` and a version as `@workspace/name@<version>`, where `<version>` is a semver (`1.0.0`), a constraint (`^1.0`), or the literal `draft`. The `+` collection marker is never valid on a dataset reference.
+
+Datasets follow the **same draft → publish lifecycle as prompts** — and, exactly like prompts, **publishing a version and changing visibility are human-only**: do them in the web app, not from the CLI (see "What the CLI cannot do"). The CLI handles everything up to that point — creating, drafting, uploading cases, the schema, and validation. New datasets are created **private**. Dataset names follow npm conventions: lowercase, 5–214 chars, letters/digits/`-`/`_`/`.`.
+
+### Create and inspect
+
+```bash
+sufleur dataset list @workspace [--search ... --limit ... --offset ...]
+sufleur dataset get @workspace/name                          # the dataset and its versions
+sufleur dataset create @workspace/name --description "..."
+sufleur dataset update @workspace/name --description "..."   # pass "" to clear the description
+```
+
+`dataset create` also creates the initial draft version, so you can start uploading cases immediately — no separate `version draft` needed for a brand-new dataset.
+
+### Local loop: dump → edit → push → validate
+
+```bash
+sufleur dataset dump @workspace/name@draft --to ./ds
+```
+
+Produces a complete working copy:
+
+```
+./ds/
+  schema.json     the JSON Schema (pretty-printed; "{}" when unset)
+  cases.jsonl     one JSON object per line (empty when the version has no cases)
+  dataset.yaml    name, description, visibility, version, status, caseCount (read-only metadata)
+```
+
+Edit `cases.jsonl` and `schema.json` locally, then push each back to the **draft**:
+
+```bash
+sufleur dataset cases push @workspace/name@draft --file ./ds/cases.jsonl   # .jsonl / .json (array) / .csv
+sufleur dataset schema set  @workspace/name@draft --file ./ds/schema.json
+```
+
+* **Cases push** replaces the draft's cases. Format is detected from the file extension; pass `--format jsonl|json|csv` to override, which is **required** when reading from stdin (`--file -`). On the **first** upload to a fresh draft the backend **infers the schema** and may suggest enums — you usually don't set a schema by hand at all.
+* **Schema set** takes a JSON Schema object; `--file -` reads from stdin. You only need it to refine the inferred schema (tighten types, add an enum, mark fields required).
+
+Then validate — every case must conform to the schema before the version can be published:
+
+```bash
+sufleur dataset version validate @workspace/name@draft   # exits non-zero on any case violation
+```
+
+When validation is clean, the draft is ready to **publish in the web app** — publishing is human-only (the backend hard-gates it on validation passing). Once a version is published there, open the next iteration with a fresh draft:
+
+```bash
+sufleur dataset version draft @workspace/name   # carries forward the latest published schema + cases; fails if a draft already exists
+```
+
+### Read-only access
+
+```bash
+sufleur dataset version list @workspace/name [--status DRAFT|PUBLISHED]
+sufleur dataset version get  @workspace/name@version       # status, schema summary, validation report
+sufleur dataset schema get   @workspace/name@version [--file out.json]
+sufleur dataset cases pull   @workspace/name@version [--to cases.jsonl] [--force]
+```
+
+`cases pull` downloads a version's cases as JSONL; `dataset dump` does the same plus schema and metadata in one directory — use it to snapshot any published version. `version delete @workspace/name@draft` removes a draft (published versions are immutable).
+
+Once a version is published (in the web app), point an eval at it via `dataset.ref` (see Evals below). Use the literal `draft` in a ref to run an eval against an unpublished version while you iterate.
+
 ## Evals
 
 An **eval** is a YAML definition attached to a specific prompt **version** (addressed by the same `@workspace/name@version` ref). It pins a dataset, the candidate prompt's provider/model/params and input mapping, optional LLM **judges**, **assertions** over the output, and a passing threshold. Running it executes the candidate over every dataset case and reports a pass-rate and a verdict. There is exactly one eval per version.
@@ -258,8 +325,8 @@ A prompt belongs to **at most one** collection. Linking a prompt that is already
 
 These operations are intentionally human-only:
 
-* **Publishing a draft** (promoting it to a stable version).
-* **Changing prompt or collection visibility** (PUBLIC ↔ PRIVATE).
+* **Publishing a draft** (promoting a prompt **or dataset** draft to a stable version).
+* **Changing visibility** (PUBLIC ↔ PRIVATE) of a prompt, dataset, or collection.
 * **Deleting a collection**, or **removing/unlinking a prompt from a collection** (these are destructive — only `link` is exposed, never an unlink).
 * **Configuring AI provider credentials** (adding or removing API keys). The CLI can *list* a workspace's providers (`workspace providers @workspace`) so you know what an eval can run against, but never add or change them.
 
@@ -277,7 +344,7 @@ This means `dump → edit → push` round-trips cleanly without any name manglin
 
 ## Machine-readable output
 
-Every command in the agent surface (`prompt`, `version`, `file`, `eval`, `collection`, `workspace`, `me`) supports `--json`. Prefer it whenever you need to parse the output:
+Every command in the agent surface (`prompt`, `version`, `file`, `eval`, `dataset`, `collection`, `workspace`, `me`) supports `--json`. Prefer it whenever you need to parse the output:
 
 ```bash
 sufleur version get @workspace/name@draft --json | jq '.files[].name'
@@ -330,5 +397,19 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Link prompt to collection | `sufleur collection link @workspace/+name @workspace/prompt [--force]` |
 | Set collection README | `sufleur collection set-readme @workspace/+name [--content STR \| --file PATH]` |
 | Set collection description | `sufleur collection set-description @workspace/+name [--content STR \| --file PATH]` |
+| List datasets | `sufleur dataset list @workspace [--search ... --limit ... --offset ...]` |
+| Inspect dataset | `sufleur dataset get @workspace/name` |
+| Create dataset | `sufleur dataset create @workspace/name --description "..."` |
+| Update dataset description | `sufleur dataset update @workspace/name --description "..."` |
+| Dump dataset version | `sufleur dataset dump @workspace/name@version --to ./dir [--force]` |
+| New dataset draft | `sufleur dataset version draft @workspace/name` |
+| List dataset versions | `sufleur dataset version list @workspace/name [--status DRAFT\|PUBLISHED]` |
+| Inspect dataset version | `sufleur dataset version get @workspace/name@version` |
+| Validate dataset cases | `sufleur dataset version validate @workspace/name@draft` |
+| Delete dataset draft | `sufleur dataset version delete @workspace/name@draft` |
+| Get dataset schema | `sufleur dataset schema get @workspace/name@version [--file PATH]` |
+| Set dataset schema | `sufleur dataset schema set @workspace/name@draft --file schema.json` |
+| Push dataset cases | `sufleur dataset cases push @workspace/name@draft --file cases.jsonl [--format jsonl\|json\|csv]` |
+| Pull dataset cases | `sufleur dataset cases pull @workspace/name@version [--to cases.jsonl] [--force]` |
 
 Run `sufleur <command> --help` for the full flag list of any command.
