@@ -67,7 +67,6 @@ func init() {
 		datasetGetCmd,
 		datasetCreateCmd,
 		datasetUpdateCmd,
-		datasetSetVisibilityCmd,
 		datasetDumpCmd,
 		datasetVersionCmd,
 		datasetSchemaCmd,
@@ -78,7 +77,6 @@ func init() {
 		datasetVersionListCmd,
 		datasetVersionGetCmd,
 		datasetVersionValidateCmd,
-		datasetVersionPublishCmd,
 		datasetVersionDeleteCmd,
 	)
 	datasetSchemaCmd.AddCommand(

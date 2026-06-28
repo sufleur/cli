@@ -10,8 +10,8 @@ var datasetVersionValidateCmd = &cobra.Command{
 	Use:   "validate @workspace/name@version",
 	Short: "Validate a version's cases against its schema",
 	Long: `Runs the live validation report for a dataset version: every case is checked
-against the version's current schema. Publishing is hard-gated on this passing,
-so run it before ` + "`dataset version publish`" + `.
+against the version's current schema. Publishing (done in the web app) is
+hard-gated on this passing, so run it before you publish.
 
 Exits non-zero when there is at least one violation.`,
 	Args:          cobra.ExactArgs(1),

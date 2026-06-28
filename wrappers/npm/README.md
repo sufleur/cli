@@ -182,8 +182,18 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `eval run @ws/name@version [--watch]` | Enqueue a run; `--watch` streams to completion (CI gate) |
 | `eval runs @ws/name@version` | List recent runs, newest first |
 | `eval show <run-id>` / `eval watch <run-id>` | Inspect or follow a single run |
+| `dataset create @ws/name [--description ...]` | Create a dataset and its initial draft (private) |
+| `dataset list @ws` / `dataset get @ws/name` | List datasets, or show one with its versions |
+| `dataset update @ws/name --description "..."` | Edit the description |
+| `dataset dump @ws/name@version --to ./dir` | Export `schema.json`, `cases.jsonl`, and `dataset.yaml` to a directory |
+| `dataset cases push @ws/name@draft --file cases.jsonl` | Upload cases (JSONL/JSON/CSV); schema inferred on first upload |
+| `dataset cases pull @ws/name@version [--to cases.jsonl]` | Download a version's cases as JSONL |
+| `dataset schema get / set @ws/name@version [--file PATH]` | Read or refine a draft's JSON Schema |
+| `dataset version draft @ws/name` | New draft, carrying forward the latest published schema + cases |
+| `dataset version list @ws/name [--status DRAFT\|PUBLISHED]` | List a dataset's versions |
+| `dataset version validate @ws/name@draft` | Check every case against the schema (non-zero exit on a violation) |
 
-An **eval** scores a prompt version against a dataset — judges, CEL assertions, and a passing threshold. Datasets are created in the web app and referenced from the eval YAML via `dataset.ref`; the CLI does not author them. Full guide: <https://sufleur.com/docs/evals>.
+An **eval** scores a prompt version against a **dataset** — judges, CEL assertions, and a passing threshold. Datasets are versioned collections of test cases, authored from the CLI too (the `dataset …` commands above) and referenced from the eval YAML via `dataset.ref`. Like prompts, **publishing a dataset version and changing its visibility are done in the web app**. Full guides: <https://sufleur.com/docs/evals> and <https://sufleur.com/docs/datasets>.
 
 ### Render before publishing
 

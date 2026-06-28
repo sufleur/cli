@@ -39,6 +39,7 @@ The generated file inlines every prompt (no runtime fetches) and exposes `getPro
 | Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-readme / get-readme / dump` |
 | Files | `file create / update / delete / list / set-entrypoint` |
 | Evals | `eval get / validate / push / delete / run / runs / show / watch` |
+| Datasets | `dataset create / get / list / update / dump`, plus `dataset version / schema / cases` subgroups |
 | Collections | `collection create / get / list-prompts / link / set-readme / set-description` |
 | Local render | `prompt render <dir> --entrypoint <name> --vars '{...}'` |
 
@@ -65,7 +66,21 @@ An **eval** scores a prompt version against a dataset — it pins the dataset, t
 - `sufleur eval run @ws/name@draft [--watch]` — enqueue a run; with `--watch` it streams to completion and exits non-zero on a failing verdict, so it works as a CI gate.
 - `sufleur eval runs / show <id> / watch <id>` — list, inspect, and follow runs.
 
-Datasets are created and populated in the web app and referenced from the eval YAML via `dataset.ref`; the CLI does not author them. Full guide: <https://sufleur.com/docs/evals> (and <https://sufleur.com/docs/datasets>).
+An eval pins a **dataset** version through `dataset.ref` — and those datasets are authored from the CLI too (see below). Full guide: <https://sufleur.com/docs/evals>.
+
+### Datasets
+
+A **dataset** is a workspace-scoped, versioned collection of **cases** (one JSON object per case) plus a JSON Schema describing their shape — the data an eval runs against. Datasets use the same draft→publish lifecycle as prompts, and — like prompts — **publishing a version and changing visibility are web-app only**. The CLI covers everything up to publish: create, draft, cases, schema, and validation.
+
+- `sufleur dataset create @ws/name [--description ...]` — create a dataset and its initial draft (private).
+- `sufleur dataset dump @ws/name@draft --to ./ds` — write `schema.json`, `cases.jsonl`, and `dataset.yaml` to a directory for local editing.
+- `sufleur dataset cases push @ws/name@draft --file ./ds/cases.jsonl` — upload cases (JSONL, JSON array, or CSV; format detected from the extension). The schema is **inferred on the first upload**.
+- `sufleur dataset schema set @ws/name@draft --file ./ds/schema.json` — refine the inferred JSON Schema.
+- `sufleur dataset version validate @ws/name@draft` — check every case against the schema (exits non-zero on a violation). Publishing in the app is gated on this passing.
+- `sufleur dataset version draft @ws/name` — open the next draft once a version has been published in the app.
+- `sufleur dataset cases pull @ws/name@version --to cases.jsonl` — download a version's cases.
+
+Reference a published version from an eval with `dataset.ref: "@ws/name@1.0.0"` (raw semver, no `v`; or the literal `draft` while iterating). Full guide: <https://sufleur.com/docs/datasets>.
 
 ## For coding agents
 
