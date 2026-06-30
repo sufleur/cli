@@ -238,18 +238,25 @@ prompt:
   model: claude-sonnet-4-5
   params: { temperature: 0 }
   inputMapping:
-    files:
+    files:                           # each prompt file declares its own input schema,
+      - file: systemPrompt           # so each file carries its own inputs
+        role: system                 # user|system
+        inputs:
+          taxonomy: allowed_types    # CEL over the dataset case
       - file: userPrompt
-        role: user                   # user|system
-    inputs:
-      question: case.question        # CEL over the dataset case
+        role: user
+        inputs:
+          text: case.text
 judges:
   - alias: quality
     prompt: "@workspace/judge@1.0.0"
     provider: openai
     model: gpt-4o
     inputMapping:
-      inputs: { answer: output.answer }
+      files:
+        - file: userPrompt
+          role: user
+          inputs: { answer: output.answer }
 assertions:
   - kind: schema                     # output conforms to the version's output schema
   - kind: expression                 # a CEL boolean
