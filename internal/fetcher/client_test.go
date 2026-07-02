@@ -329,6 +329,27 @@ func TestClient_AuthHeader(t *testing.T) {
 	_ = c.ValidatePrompts(context.Background(), []string{"hello"})
 }
 
+func TestClient_NoAuthHeader_WhenKeyEmpty(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, present := r.Header["Authorization"]; present {
+			t.Errorf("expected no Authorization header, got %q", r.Header.Get("Authorization"))
+		}
+		if got := r.Header.Get("X-Workspace"); got != "my-workspace" {
+			t.Errorf("expected X-Workspace 'my-workspace', got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"prompt_hello": map[string]any{"name": "hello"},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, "", "my-workspace", false)
+	_ = c.ValidatePrompts(context.Background(), []string{"hello"})
+}
+
 func TestClient_XClientHeader(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("X-Client"); got != "cli" {
