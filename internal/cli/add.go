@@ -59,18 +59,17 @@ reported as skipped; pass --force to reset them to "*".`,
 			return err
 		}
 
-		apiKey, ok := cfg.ResolvedKeys[ref.Workspace]
-		if !ok {
-			return fmt.Errorf("no API key configured for workspace %q — add it to api_keys in sufleur.yaml", ref.Workspace)
+		client, anonymous, err := clientForWorkspace(cfg, ref.Workspace, verbose)
+		if err != nil {
+			return err
 		}
 
 		if existing, exists := cfg.Raw.Prompts[aliasKey]; exists && !force {
 			return fmt.Errorf("prompt %s already in sufleur.yaml (value: %s) — use --force to update", aliasKey, existing)
 		}
 
-		client := fetcher.NewClient(cfg.ResolvedEndpoint, apiKey, ref.Workspace, verbose)
 		if err := client.ValidatePrompts(cmd.Context(), []string{ref.Name}); err != nil {
-			return fmt.Errorf("validating prompt: %w", err)
+			return fmt.Errorf("validating prompt: %w%s", err, anonymousHint(anonymous))
 		}
 
 		// Capture the manifest before mutating it so a failed resolve can roll
@@ -115,15 +114,14 @@ func runCollectionAdd(cmd *cobra.Command, ref promptref.PromptRef, args []string
 		return err
 	}
 
-	apiKey, ok := cfg.ResolvedKeys[ref.Workspace]
-	if !ok {
-		return fmt.Errorf("no API key configured for workspace %q — add it to api_keys in sufleur.yaml", ref.Workspace)
-	}
-
-	client := fetcher.NewClient(cfg.ResolvedEndpoint, apiKey, ref.Workspace, verbose)
-	names, err := client.ListCollectionPrompts(cmd.Context(), ref.Name)
+	client, anonymous, err := clientForWorkspace(cfg, ref.Workspace, verbose)
 	if err != nil {
 		return err
+	}
+
+	names, err := client.ListCollectionPrompts(cmd.Context(), ref.Name)
+	if err != nil {
+		return fmt.Errorf("%w%s", err, anonymousHint(anonymous))
 	}
 	if len(names) == 0 {
 		fmt.Printf("Collection %s contains no prompts — nothing to install.\n", ref.Raw)
@@ -168,6 +166,26 @@ func runCollectionAdd(cmd *cobra.Command, ref promptref.PromptRef, args []string
 	}
 
 	return resolveOrRollback(cmd.Context(), verbose, original)
+}
+
+// clientForWorkspace builds a fetcher client for a workspace. A workspace
+// without an api_keys entry gets an anonymous client (public prompts only);
+// a configured key that failed to resolve is an error.
+func clientForWorkspace(cfg *config.Config, workspace string, verbose bool) (fetcher.Client, bool, error) {
+	apiKey, err := cfg.APIKeyFor(workspace)
+	if err != nil {
+		return nil, false, err
+	}
+	return fetcher.NewClient(cfg.ResolvedEndpoint, apiKey, workspace, verbose), apiKey == "", nil
+}
+
+// anonymousHint appends the resolver's anonymous-access hint to error output
+// when the failed request ran without an API key.
+func anonymousHint(anonymous bool) string {
+	if anonymous {
+		return resolver.AnonymousAccessHint
+	}
+	return ""
 }
 
 // resolveOrRollback runs the resolver over sufleur.yaml and, if resolution

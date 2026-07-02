@@ -34,8 +34,11 @@ var initCmd = &cobra.Command{
 			return defaultVal
 		}
 
-		workspace := prompt("Workspace name", "")
-		envVar := prompt("API key environment variable", strings.ToUpper(strings.ReplaceAll(workspace, "-", "_"))+"_API_KEY")
+		workspace := prompt("Workspace name (leave empty to only install public prompts)", "")
+		envVar := ""
+		if workspace != "" {
+			envVar = prompt("API key environment variable", strings.ToUpper(strings.ReplaceAll(workspace, "-", "_"))+"_API_KEY")
+		}
 		language := prompt("Output language (typescript, python)", "typescript")
 
 		defaultFile := "./generated/prompts.ts"
@@ -44,27 +47,40 @@ var initCmd = &cobra.Command{
 		}
 		outFile := prompt("Output file path", defaultFile)
 
-		cfg := config.SufleurConfig{
-			APIKeys: map[string]string{
-				workspace: "${" + envVar + "}",
-			},
-			Prompts: map[string]string{},
-			Output: config.OutputConfig{
-				Language: language,
-				File:     outFile,
-			},
-		}
-
-		if err := config.Save("sufleur.yaml", cfg); err != nil {
+		if err := config.Save("sufleur.yaml", buildInitConfig(workspace, envVar, language, outFile)); err != nil {
 			return err
 		}
 
 		fmt.Println("\nCreated sufleur.yaml")
 		fmt.Printf("Next steps:\n")
-		fmt.Printf("  1. Set %s in your environment (or .env file)\n", envVar)
-		fmt.Printf("  2. Run: sufleur add @%s/<prompt-name>\n", workspace)
-		fmt.Printf("  3. Run: sufleur install\n")
-		fmt.Printf("  4. Run: sufleur generate\n")
+		if workspace != "" {
+			fmt.Printf("  1. Set %s in your environment (or .env file)\n", envVar)
+			fmt.Printf("  2. Run: sufleur add @%s/<prompt-name>\n", workspace)
+			fmt.Printf("  3. Run: sufleur install\n")
+			fmt.Printf("  4. Run: sufleur generate\n")
+		} else {
+			fmt.Printf("  1. Run: sufleur add @<workspace>/<prompt-name>   (public prompts need no API key)\n")
+			fmt.Printf("  2. Run: sufleur install\n")
+			fmt.Printf("  3. Run: sufleur generate\n")
+		}
 		return nil
 	},
+}
+
+// buildInitConfig assembles the sufleur.yaml written by `sufleur init`. An
+// empty workspace means the user only consumes public prompts: no api_keys
+// entry is written at all.
+func buildInitConfig(workspace, envVar, language, outFile string) config.SufleurConfig {
+	apiKeys := map[string]string{}
+	if workspace != "" {
+		apiKeys[workspace] = "${" + envVar + "}"
+	}
+	return config.SufleurConfig{
+		APIKeys: apiKeys,
+		Prompts: map[string]string{},
+		Output: config.OutputConfig{
+			Language: language,
+			File:     outFile,
+		},
+	}
 }

@@ -12,12 +12,12 @@ func TestRoundTrip(t *testing.T) {
 
 	original := SufleurConfig{
 		APIKeys: map[string]string{
-			"wtomas":   "test-key-123",
+			"wtomas":    "test-key-123",
 			"acme-corp": "test-key-456",
 		},
 		Prompts: map[string]string{
-			"@wtomas/greeting":       "^1.0.0",
-			"@acme-corp/farewell":    "~2.1.0",
+			"@wtomas/greeting":    "^1.0.0",
+			"@acme-corp/farewell": "~2.1.0",
 		},
 		Output: OutputConfig{
 			Language: "typescript",
@@ -85,15 +85,17 @@ func TestEnvVarExpansion(t *testing.T) {
 	}
 }
 
-func TestMissingEnvVarError(t *testing.T) {
+func TestMissingEnvVar_DeferredToAPIKeyFor(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sufleur.yaml")
 
 	os.Unsetenv("NONEXISTENT_VAR")
+	t.Setenv("OTHER_KEY", "other-secret")
 
 	original := SufleurConfig{
 		APIKeys: map[string]string{
 			"wtomas": "${NONEXISTENT_VAR}",
+			"other":  "${OTHER_KEY}",
 		},
 		Prompts: map[string]string{},
 		Output:  OutputConfig{Language: "typescript", File: "./out/prompts.ts"},
@@ -103,12 +105,56 @@ func TestMissingEnvVarError(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	_, err := Load(path)
+	// A key whose env var is unset must not block loading: other workspaces
+	// (or public prompts) must remain usable.
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if _, ok := cfg.ResolvedKeys["wtomas"]; ok {
+		t.Error("expected no resolved key for workspace with unset env var")
+	}
+	if cfg.ResolvedKeys["other"] != "other-secret" {
+		t.Errorf("ResolvedKeys[other] = %q, want %q", cfg.ResolvedKeys["other"], "other-secret")
+	}
+
+	// The error surfaces only when the broken workspace's key is requested.
+	_, err = cfg.APIKeyFor("wtomas")
 	if err == nil {
-		t.Fatal("expected error for missing env var, got nil")
+		t.Fatal("expected error for workspace with unset env var, got nil")
 	}
 	if want := "NONEXISTENT_VAR is not set"; !contains(err.Error(), want) {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+	}
+}
+
+func TestAPIKeyFor(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sufleur.yaml")
+
+	if err := Save(path, SufleurConfig{
+		APIKeys: map[string]string{"acme": "acme-key"},
+		Prompts: map[string]string{},
+		Output:  OutputConfig{Language: "typescript", File: "./out/prompts.ts"},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	key, err := cfg.APIKeyFor("acme")
+	if err != nil || key != "acme-key" {
+		t.Errorf("APIKeyFor(acme) = (%q, %v), want (%q, nil)", key, err, "acme-key")
+	}
+
+	// No api_keys entry at all means anonymous access (public prompts).
+	key, err = cfg.APIKeyFor("unconfigured")
+	if err != nil || key != "" {
+		t.Errorf("APIKeyFor(unconfigured) = (%q, %v), want (\"\", nil)", key, err)
 	}
 }
 
@@ -298,11 +344,11 @@ func TestParsePromptEntry_AliasCrossWorkspace(t *testing.T) {
 
 func TestParsePromptEntry_RejectMalformed(t *testing.T) {
 	cases := []struct{ key, value string }{
-		{"@wtomas/foo", ""},                  // empty value
-		{"@wtomas/foo", "@bare"},             // no separator
-		{"@wtomas/foo", "@wtomas/foo@"},      // empty constraint
-		{"@wtomas/foo", "@/foo@^1.0.0"},      // empty workspace
-		{"@wtomas/foo", "@nopkg@^1.0.0"},     // missing slash in package
+		{"@wtomas/foo", ""},              // empty value
+		{"@wtomas/foo", "@bare"},         // no separator
+		{"@wtomas/foo", "@wtomas/foo@"},  // empty constraint
+		{"@wtomas/foo", "@/foo@^1.0.0"},  // empty workspace
+		{"@wtomas/foo", "@nopkg@^1.0.0"}, // missing slash in package
 	}
 	for _, tc := range cases {
 		t.Run(tc.value, func(t *testing.T) {

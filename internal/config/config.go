@@ -108,7 +108,20 @@ func FormatPromptValue(alias, pkg, constraint string) string {
 type Config struct {
 	Raw              SufleurConfig
 	ResolvedKeys     map[string]string // workspace → resolved API key
+	KeyErrors        map[string]error  // workspace → key resolution failure (e.g. unset env var)
 	ResolvedEndpoint string
+}
+
+// APIKeyFor returns the API key to use for a workspace. A workspace with no
+// api_keys entry resolves to the empty string, meaning anonymous access —
+// enough for public prompts. A workspace whose configured key failed to
+// resolve returns that error: the user asked for authentication, so silently
+// falling back to anonymous would mask private prompts as "not found".
+func (c *Config) APIKeyFor(workspace string) (string, error) {
+	if err, ok := c.KeyErrors[workspace]; ok {
+		return "", fmt.Errorf("resolving API key for workspace %q: %w", workspace, err)
+	}
+	return c.ResolvedKeys[workspace], nil
 }
 
 // Load reads a sufleur.yaml file and resolves environment variables.
@@ -124,10 +137,12 @@ func Load(path string) (*Config, error) {
 	}
 
 	resolvedKeys := make(map[string]string, len(raw.APIKeys))
+	keyErrors := make(map[string]error)
 	for workspace, keyRef := range raw.APIKeys {
 		resolved, err := expandEnvVars(keyRef)
 		if err != nil {
-			return nil, fmt.Errorf("resolving API key for workspace %q: %w", workspace, err)
+			keyErrors[workspace] = err
+			continue
 		}
 		resolvedKeys[workspace] = resolved
 	}
@@ -140,6 +155,7 @@ func Load(path string) (*Config, error) {
 	return &Config{
 		Raw:              raw,
 		ResolvedKeys:     resolvedKeys,
+		KeyErrors:        keyErrors,
 		ResolvedEndpoint: endpoint,
 	}, nil
 }

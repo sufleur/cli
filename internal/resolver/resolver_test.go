@@ -49,11 +49,14 @@ func (m *mockClient) FetchPromptVersion(_ context.Context, promptName, _ string,
 
 func writeTestConfig(t *testing.T, dir string, prompts map[string]string) string {
 	t.Helper()
+	return writeTestConfigWithKeys(t, dir, map[string]string{"test": "test-key"}, prompts)
+}
+
+func writeTestConfigWithKeys(t *testing.T, dir string, apiKeys, prompts map[string]string) string {
+	t.Helper()
 	cfgPath := filepath.Join(dir, "sufleur.yaml")
 	cfg := config.SufleurConfig{
-		APIKeys: map[string]string{
-			"test": "test-key",
-		},
+		APIKeys: apiKeys,
 		Prompts: prompts,
 		Output:  config.OutputConfig{Language: "typescript", File: "./generated/prompts.ts"},
 	}
@@ -626,23 +629,49 @@ func TestUpdate_AllPrompts(t *testing.T) {
 	}
 }
 
-func TestMissingWorkspaceKey(t *testing.T) {
+func TestInstall_NoWorkspaceKey_Anonymous(t *testing.T) {
+	// A workspace without an api_keys entry is not an error: public prompts
+	// are installable anonymously, like public npm packages.
 	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "sufleur.yaml")
-	cfg := config.SufleurConfig{
-		APIKeys: map[string]string{
-			"test": "test-key",
-		},
-		Prompts: map[string]string{
-			"@other/greeting": "^1.0.0",
-		},
-		Output: config.OutputConfig{Language: "typescript", File: "./generated/prompts.ts"},
-	}
-	if err := config.Save(cfgPath, cfg); err != nil {
-		t.Fatalf("writing config: %v", err)
-	}
+	cfgPath := writeTestConfigWithKeys(t, dir, nil, map[string]string{
+		"@other/greeting": "^1.0.0",
+	})
 
-	mock := &mockClient{}
+	mock := &mockClient{
+		prompts: map[string]*generator.PromptData{
+			"greeting": makePromptData("greeting", "1.2.0"),
+		},
+	}
+	r := NewWithClient(Options{
+		ConfigPath:   cfgPath,
+		LockfilePath: filepath.Join(dir, "sufleur-lock.yaml"),
+		CacheDir:     filepath.Join(dir, ".sufleur"),
+	}, mockFactory(mock))
+
+	result, err := r.Install(context.Background())
+	if err != nil {
+		t.Fatalf("expected anonymous install to succeed, got %v", err)
+	}
+	if len(result.Entries) != 1 || result.Entries[0].Version != "1.2.0" {
+		t.Errorf("unexpected result: %+v", result.Entries)
+	}
+}
+
+func TestInstall_UnresolvableKeyEnvVar_Fails(t *testing.T) {
+	// A configured key whose env var is unset must fail loudly (the user
+	// asked for auth), not silently fall back to anonymous.
+	dir := t.TempDir()
+	os.Unsetenv("SUFLEUR_TEST_UNSET_VAR")
+	cfgPath := writeTestConfigWithKeys(t, dir,
+		map[string]string{"test": "${SUFLEUR_TEST_UNSET_VAR}"},
+		map[string]string{"@test/greeting": "^1.0.0"},
+	)
+
+	mock := &mockClient{
+		prompts: map[string]*generator.PromptData{
+			"greeting": makePromptData("greeting", "1.2.0"),
+		},
+	}
 	r := NewWithClient(Options{
 		ConfigPath:   cfgPath,
 		LockfilePath: filepath.Join(dir, "sufleur-lock.yaml"),
@@ -651,10 +680,34 @@ func TestMissingWorkspaceKey(t *testing.T) {
 
 	_, err := r.Install(context.Background())
 	if err == nil {
-		t.Fatal("expected error for missing workspace key, got nil")
+		t.Fatal("expected error for unresolvable workspace key, got nil")
 	}
-	if !contains(err.Error(), "no API key configured for workspace") {
+	if !contains(err.Error(), "SUFLEUR_TEST_UNSET_VAR is not set") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestInstall_AnonymousValidationFailure_Hint(t *testing.T) {
+	// Anonymous callers see private prompts as "not found" — the error must
+	// hint that configuring an API key may be the fix.
+	dir := t.TempDir()
+	cfgPath := writeTestConfigWithKeys(t, dir, nil, map[string]string{
+		"@other/greeting": "^1.0.0",
+	})
+
+	mock := &mockClient{validateErr: errors.New("prompt not found")}
+	r := NewWithClient(Options{
+		ConfigPath:   cfgPath,
+		LockfilePath: filepath.Join(dir, "sufleur-lock.yaml"),
+		CacheDir:     filepath.Join(dir, ".sufleur"),
+	}, mockFactory(mock))
+
+	_, err := r.Install(context.Background())
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+	if !contains(err.Error(), "api_keys") {
+		t.Errorf("expected error to hint at configuring api_keys, got: %v", err)
 	}
 }
 

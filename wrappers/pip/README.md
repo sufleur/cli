@@ -97,6 +97,8 @@ output:
   file: ./generated/prompts.py
 ```
 
+`api_keys` is optional: public prompts install without any key (like public npm packages). A key is only needed for the private prompts of a workspace.
+
 Constraints are npm-style semver ranges (`^`, `~`, `>=`, exact, `*`). The resolution is recorded in `sufleur-lock.yaml`. **Commit both files** — `sufleur.yaml` is the source of truth, `sufleur-lock.yaml` is the receipt.
 
 ## CI usage

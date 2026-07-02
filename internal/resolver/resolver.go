@@ -95,14 +95,19 @@ func (r *Resolver) Install(ctx context.Context) (*Result, error) {
 		pkg   promptref.PromptRef
 	}
 	byWorkspace := make(map[string][]entryWithRef)
+	anonymous := make(map[string]bool)
 	for _, e := range entries {
 		pkgRef, err := promptref.Parse(e.Package)
 		if err != nil {
 			return nil, fmt.Errorf("invalid package ref for prompt %q: %w", e.Alias, err)
 		}
-		if _, ok := cfg.ResolvedKeys[pkgRef.Workspace]; !ok {
-			return nil, fmt.Errorf("no API key configured for workspace %q (needed by %s)", pkgRef.Workspace, e.Alias)
+		// No api_keys entry means anonymous access — enough for public
+		// prompts. A configured key that failed to resolve is an error.
+		key, err := cfg.APIKeyFor(pkgRef.Workspace)
+		if err != nil {
+			return nil, fmt.Errorf("%w (needed by %s)", err, e.Alias)
 		}
+		anonymous[pkgRef.Workspace] = key == ""
 		byWorkspace[pkgRef.Workspace] = append(byWorkspace[pkgRef.Workspace], entryWithRef{entry: e, pkg: pkgRef})
 	}
 
@@ -121,7 +126,7 @@ func (r *Resolver) Install(ctx context.Context) (*Result, error) {
 			names = append(names, e.pkg.Name)
 		}
 		if err := client.ValidatePrompts(ctx, names); err != nil {
-			return nil, fmt.Errorf("validating prompts for workspace %q: %w", workspace, err)
+			return nil, fmt.Errorf("validating prompts for workspace %q: %w%s", workspace, err, anonymousHint(anonymous[workspace]))
 		}
 	}
 
@@ -138,7 +143,7 @@ func (r *Resolver) Install(ctx context.Context) (*Result, error) {
 		for _, e := range ws {
 			internal, err := r.resolveOne(ctx, client, dc, existing, e.entry, e.pkg, updateSet)
 			if err != nil {
-				return nil, fmt.Errorf("resolving %q: %w", e.entry.Alias, err)
+				return nil, fmt.Errorf("resolving %q: %w%s", e.entry.Alias, err, anonymousHint(anonymous[workspace]))
 			}
 
 			rp := lockfile.ResolvedPrompt{

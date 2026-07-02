@@ -40,7 +40,9 @@ type client struct {
 	gql *graphql.Client
 }
 
-// NewClient creates a new GraphQL client for the Sufleur API.
+// NewClient creates a new GraphQL client for the Sufleur API. An empty apiKey
+// produces an anonymous client (no Authorization header) — the backend serves
+// public prompts to anonymous callers but rejects an empty bearer token.
 func NewClient(endpoint, apiKey, workspace string, verbose bool) Client {
 	httpClient := &http.Client{}
 	if verbose {
@@ -48,7 +50,9 @@ func NewClient(endpoint, apiKey, workspace string, verbose bool) Client {
 	}
 	gql := graphql.NewClient(endpoint, httpClient).
 		WithRequestModifier(func(req *http.Request) {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
+			if apiKey != "" {
+				req.Header.Set("Authorization", "Bearer "+apiKey)
+			}
 			req.Header.Set("X-Client", "cli")
 			if workspace != "" {
 				req.Header.Set("X-Workspace", workspace)
