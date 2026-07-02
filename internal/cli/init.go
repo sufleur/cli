@@ -34,10 +34,13 @@ var initCmd = &cobra.Command{
 			return defaultVal
 		}
 
-		workspace := prompt("Workspace name (leave empty to only install public prompts)", "")
-		envVar := ""
-		if workspace != "" {
-			envVar = prompt("API key environment variable", strings.ToUpper(strings.ReplaceAll(workspace, "-", "_"))+"_API_KEY")
+		workspace, envVar := "", ""
+		usePrivate := prompt("Will you use private prompts from a workspace? Public prompts need no API key (y/N)", "")
+		if isYes(usePrivate) {
+			workspace = prompt("Workspace name", "")
+			if workspace != "" {
+				envVar = prompt("API key environment variable", strings.ToUpper(strings.ReplaceAll(workspace, "-", "_"))+"_API_KEY")
+			}
 		}
 		language := prompt("Output language (typescript, python)", "typescript")
 
@@ -65,6 +68,16 @@ var initCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// isYes reports whether an interactive answer affirms a yes/no question.
+// Anything other than y/yes (case-insensitive) counts as no.
+func isYes(answer string) bool {
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes":
+		return true
+	}
+	return false
 }
 
 // buildInitConfig assembles the sufleur.yaml written by `sufleur init`. An

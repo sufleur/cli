@@ -2,6 +2,21 @@ package cli
 
 import "testing"
 
+func TestIsYes(t *testing.T) {
+	yes := []string{"y", "Y", "yes", "Yes", "YES", " y "}
+	for _, in := range yes {
+		if !isYes(in) {
+			t.Errorf("isYes(%q) = false, want true", in)
+		}
+	}
+	no := []string{"n", "N", "no", "No", "", "nope", "true"}
+	for _, in := range no {
+		if isYes(in) {
+			t.Errorf("isYes(%q) = true, want false", in)
+		}
+	}
+}
+
 func TestBuildInitConfig_WithWorkspace(t *testing.T) {
 	cfg := buildInitConfig("acme", "ACME_API_KEY", "typescript", "./generated/prompts.ts")
 
