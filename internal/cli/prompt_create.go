@@ -40,7 +40,7 @@ var promptCreateCmd = &cobra.Command{
 		if asJSON {
 			return printJSON(cmd, p)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Created @%s/%s\n", ref.Workspace, p.Name)
+		fmt.Fprintf(cmd.OutOrStdout(), "Created @%s/%s with an initial draft seeded with two empty entrypoint files: systemPrompt, userPrompt (reuse or delete them)\n", ref.Workspace, p.Name)
 		return nil
 	},
 }
