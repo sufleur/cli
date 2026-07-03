@@ -77,6 +77,10 @@ sufleur version draft @workspace/name
 
 This forks the latest published version into a fresh draft and prints the new version label (e.g. `0.1.3-draft.0`). From then on, target `@workspace/name@draft` (or the specific draft label) in every write command.
 
+### Brand-new prompts start with skeleton files
+
+`sufleur prompt create` seeds the initial draft with two **empty** files, `systemPrompt` and `userPrompt`, both marked as entrypoints. They are placeholders, not requirements — before adding your own files, either reuse them (`file update --name systemPrompt --file ...`, optionally `--rename`) or delete them (`file delete @workspace/name@draft --name systemPrompt`). If you ignore them and create fresh files instead, the empty skeletons linger as entrypoints and pollute the version.
+
 ## Local iteration loop: dump → edit → render → push
 
 For any non-trivial edit, prefer the local-first loop. It avoids round-tripping to the registry on every change and keeps the agent's working state on disk where it can be inspected.
