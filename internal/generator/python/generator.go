@@ -61,6 +61,7 @@ type promptTemplateData struct {
 	OutputPydanticModel string
 	OutputClassName     string
 	OutputSchemaRaw     string
+	ModelConfigRaw      string
 }
 
 type partialData struct {
@@ -69,12 +70,13 @@ type partialData struct {
 }
 
 type templateContext struct {
-	Timestamp      string
-	Prompts        []promptTemplateData
-	AnyHasOutput   bool
-	AnyHasOptional bool
-	AnyHasUnion    bool
-	FencePattern   string
+	Timestamp         string
+	Prompts           []promptTemplateData
+	AnyHasOutput      bool
+	AnyHasOptional    bool
+	AnyHasUnion       bool
+	AnyHasModelConfig bool
+	FencePattern      string
 }
 
 // inputAnalysis is accumulated during input-schema traversal so the template
@@ -130,6 +132,7 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 
 	var tds []promptTemplateData
 	anyHasOutput := false
+	anyHasModelConfig := false
 	anyAnalysis := inputAnalysis{}
 	for _, p := range prompts {
 		dn := displayName(p)
@@ -187,12 +190,24 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 			anyHasOutput = true
 		}
 
+		// modelConfig → raw JSON, emitted verbatim via json.loads (parameters
+		// stay camelCase; runtime dict key is "modelConfig" to match the TS output).
+		if p.ModelConfig != nil {
+			if raw, err := json.MarshalIndent(p.ModelConfig, "", "  "); err == nil {
+				td.ModelConfigRaw = string(raw)
+				anyHasModelConfig = true
+			}
+		}
+
 		// Build typed metadata TypedDict (use raw metadata to read type hints)
 		metaClassName := "_" + td.PascalName + "Metadata"
 		td.MetadataTypeName = metaClassName
 		metaFields := buildMetadataFields(p.Metadata)
 		if p.OutputSchema != nil {
 			metaFields = append(metaFields, typedDictField{Name: "output_schema", Type: "dict[str, Any]"})
+		}
+		if td.ModelConfigRaw != "" {
+			metaFields = append(metaFields, typedDictField{Name: "modelConfig", Type: "dict[str, Any]"})
 		}
 		// Always include version
 		metaFields = append(metaFields, typedDictField{Name: "version", Type: "str"})
@@ -205,12 +220,13 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 	}
 
 	return templateContext{
-		Timestamp:      time.Now().UTC().Format(time.RFC3339),
-		Prompts:        tds,
-		AnyHasOutput:   anyHasOutput,
-		AnyHasOptional: anyAnalysis.HasOptional,
-		AnyHasUnion:    anyAnalysis.HasUnion,
-		FencePattern:   parser.FencePattern,
+		Timestamp:         time.Now().UTC().Format(time.RFC3339),
+		Prompts:           tds,
+		AnyHasOutput:      anyHasOutput,
+		AnyHasOptional:    anyAnalysis.HasOptional,
+		AnyHasUnion:       anyAnalysis.HasUnion,
+		AnyHasModelConfig: anyHasModelConfig,
+		FencePattern:      parser.FencePattern,
 	}
 }
 
@@ -565,8 +581,10 @@ from typing_extensions import NotRequired
 {{- end}}
 
 import chevron
-{{- if .AnyHasOutput}}
+{{- if or .AnyHasOutput .AnyHasModelConfig}}
 import json
+{{- end}}
+{{- if .AnyHasOutput}}
 import re
 from pydantic import BaseModel, ValidationError
 {{- end}}
@@ -638,6 +656,8 @@ _partials: dict[str, dict[str, str]] = {
 }
 
 # ─── Metadata ─────────────────────────────────────────────────────────────────
+# Note: modelConfig.parameters keys are camelCase (matching the platform API);
+# adapt them to your target SDK's parameter naming if needed.
 
 _metadata: dict[str, dict[str, Any]] = {
 {{- range .Prompts}}
@@ -649,6 +669,9 @@ _metadata: dict[str, dict[str, Any]] = {
         "output_schema": json.loads({{pyStringLiteral .OutputSchemaRaw}}),
         {{- end}}
         "version": "{{.Version}}",
+        {{- if .ModelConfigRaw}}
+        "modelConfig": json.loads({{pyStringLiteral .ModelConfigRaw}}),
+        {{- end}}
     },
 {{- end}}
 }

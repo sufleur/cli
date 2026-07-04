@@ -16,6 +16,7 @@ type PromptData struct {
 	Status       string                 // "PUBLISHED" or "DRAFT"
 	Metadata     map[string]interface{} // model, provider, temperature, etc.
 	OutputSchema map[string]interface{} // nullable JSON Schema for structured output
+	ModelConfig  map[string]interface{} // provider, model, parameters (nullable)
 	Files        []PromptFile
 }
 

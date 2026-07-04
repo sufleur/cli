@@ -44,6 +44,7 @@ type promptTemplateData struct {
 	HasOutputSchema bool
 	OutputSchemaZod string
 	OutputSchemaRaw string
+	ModelConfigRaw  string
 }
 
 type partialData struct {
@@ -153,6 +154,13 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 				td.OutputSchemaRaw = string(raw)
 			}
 			anyHasOutput = true
+		}
+
+		// modelConfig → raw JSON, emitted verbatim (parameters stay camelCase).
+		if p.ModelConfig != nil {
+			if raw, err := json.MarshalIndent(p.ModelConfig, "", "  "); err == nil {
+				td.ModelConfigRaw = string(raw)
+			}
 		}
 
 		tds = append(tds, td)
@@ -516,6 +524,9 @@ export const _metadata = {
     {{$k}}: {{tsMetadataValue $v}},
     {{- end}}
     version: '{{.Version}}',
+    {{- if .ModelConfigRaw}}
+    modelConfig: {{.ModelConfigRaw}},
+    {{- end}}
     {{- if .HasOutputSchema}}
     outputSchema: {{.OutputSchemaRaw}},
     {{- end}}
