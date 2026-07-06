@@ -36,7 +36,7 @@ The generated file inlines every prompt (no runtime fetches) and exposes `getPro
 | Auth | `login`, `logout`, `me` |
 | Workspaces | `workspace list` |
 | Prompts | `prompt create / get / list / update` |
-| Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-readme / get-readme / dump` |
+| Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-model-config / set-readme / get-readme / dump` |
 | Files | `file create / update / delete / list / set-entrypoint` |
 | Evals | `eval get / validate / push / delete / run / runs / show / watch` |
 | Datasets | `dataset create / get / list / update / dump`, plus `dataset version / schema / cases` subgroups |

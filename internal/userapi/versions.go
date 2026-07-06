@@ -8,7 +8,9 @@ import (
 // PromptVersion mirrors the queryable subset of the GraphQL PromptVersion
 // type that the CLI surfaces. Metadata and OutputSchema are JSON scalars so
 // they decode into open maps. OutputSchema is nullable on the wire; the
-// pointer distinguishes "no schema set" from "empty object".
+// pointer distinguishes "no schema set" from "empty object". ModelConfig is a
+// structured object (not a JSON scalar); it is nullable on the wire, so the
+// pointer distinguishes "no model config set" from a present-but-empty one.
 type PromptVersion struct {
 	Version      string         `json:"version"`
 	Status       string         `json:"status"`
@@ -16,8 +18,18 @@ type PromptVersion struct {
 	UpdatedAt    time.Time      `json:"updatedAt"`
 	Metadata     map[string]any `json:"metadata"`
 	OutputSchema map[string]any `json:"outputSchema,omitempty"`
+	ModelConfig  *ModelConfig   `json:"modelConfig,omitempty"`
 	Readme       string         `json:"readme"`
 	Files        []PromptFile   `json:"files"`
+}
+
+// ModelConfig is a version's structured provider/model/parameters, set via
+// SetPromptVersionModelConfig. Provider is the LlmProvider GraphQL enum value
+// (e.g. "ANTHROPIC"); Parameters is a free-form JSON object.
+type ModelConfig struct {
+	Provider   string         `json:"provider"`
+	Model      string         `json:"model"`
+	Parameters map[string]any `json:"parameters"`
 }
 
 // PromptFile is one file inside a PromptVersion. Content may be empty for
@@ -34,7 +46,7 @@ type PromptVersionsPage struct {
 	Total int             `json:"total"`
 }
 
-const promptVersionFields = "version status createdAt updatedAt metadata outputSchema readme files { name content isEntrypoint }"
+const promptVersionFields = "version status createdAt updatedAt metadata outputSchema modelConfig { provider model parameters } readme files { name content isEntrypoint }"
 
 // CreatePromptVersion creates a new draft version of an existing prompt by
 // copying its latest published version.
@@ -211,6 +223,34 @@ func (c *Client) SetPromptVersionOutputSchema(ctx context.Context, workspace, na
 	}
 	if resp.Version == nil {
 		return nil, errMissingData("promptVersionSetOutputSchema")
+	}
+	return resp.Version, nil
+}
+
+// SetPromptVersionModelConfig replaces a version's structured model config
+// (provider, model, parameters).
+func (c *Client) SetPromptVersionModelConfig(ctx context.Context, workspace, name, version string, modelConfig ModelConfig) (*PromptVersion, error) {
+	var resp struct {
+		Version *PromptVersion `json:"promptVersionSetModelConfig"`
+	}
+	err := c.Do(ctx, Request{
+		Query: "mutation SetModelConfig($promptName: ID!, $version: ID!, $modelConfig: ModelConfigInput!) { promptVersionSetModelConfig(promptName: $promptName, version: $version, modelConfig: $modelConfig) { " + promptVersionFields + " } }",
+		Variables: map[string]any{
+			"promptName": name,
+			"version":    version,
+			"modelConfig": map[string]any{
+				"provider":   modelConfig.Provider,
+				"model":      modelConfig.Model,
+				"parameters": modelConfig.Parameters,
+			},
+		},
+		Workspace: workspace,
+	}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Version == nil {
+		return nil, errMissingData("promptVersionSetModelConfig")
 	}
 	return resp.Version, nil
 }

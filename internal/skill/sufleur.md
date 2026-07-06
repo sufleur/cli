@@ -144,6 +144,9 @@ sufleur version delete-metadata @workspace/name@draft --key old-key
 # output schema
 sufleur version set-output-schema @workspace/name@draft --file ./working/output-schema.json
 
+# model config — provider/model/parameters (required before an eval can run)
+sufleur version set-model-config @workspace/name@draft --provider anthropic --model claude-sonnet-4-5 --params '{"temperature":0.7}'
+
 # readme — replace from a file, inline string, or stdin (mutually exclusive)
 sufleur version set-readme @workspace/name@draft --file ./working/README.md
 sufleur version set-readme @workspace/name@draft --content "# Title\n\nBody"
@@ -383,6 +386,7 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Set metadata (patch) | `sufleur version set-metadata @workspace/name@draft --string KEY=VAL` |
 | Delete metadata key | `sufleur version delete-metadata @workspace/name@draft --key KEY` |
 | Set output schema | `sufleur version set-output-schema @workspace/name@draft --file ./schema.json` |
+| Set model config | `sufleur version set-model-config @workspace/name@draft --provider anthropic --model NAME [--params '{...}']` |
 | Read README | `sufleur version get-readme @workspace/name@version` |
 | Set README | `sufleur version set-readme @workspace/name@draft [--content STR \| --file PATH]` |
 | List files | `sufleur file list @workspace/name@draft` |
