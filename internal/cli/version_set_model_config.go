@@ -153,6 +153,13 @@ func parseModelConfigFlags(provider, model, paramsRaw string) (userapi.ModelConf
 	if err := json.Unmarshal([]byte(paramsRaw), &params); err != nil {
 		return userapi.ModelConfig{}, fmt.Errorf("parsing --params as a JSON object: %w", err)
 	}
+	// Normalize a null/omitted params object to an empty map so the wire value is
+	// `{}` (the backend's parameters field is non-null), never `null`. This keeps
+	// `--params null` and a --from-file YAML that omits `parameters:` consistent
+	// with the `--params "{}"` default.
+	if params == nil {
+		params = map[string]any{}
+	}
 	return userapi.ModelConfig{
 		Provider:   strings.ToUpper(provider),
 		Model:      model,

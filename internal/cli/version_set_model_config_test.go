@@ -45,6 +45,20 @@ func TestParseModelConfigFile(t *testing.T) {
 		}
 	})
 
+	t.Run("omitted parameters key normalizes to empty object, not null", func(t *testing.T) {
+		path := writeTempModelConfigFile(t, "provider: anthropic\nmodel: claude-sonnet-4-5\n")
+		mc, err := parseModelConfigFile(path)
+		if err != nil {
+			t.Fatalf("parseModelConfigFile: %v", err)
+		}
+		if mc.Parameters == nil {
+			t.Fatal("parameters is nil; want a non-nil empty map so the wire value is {} not null")
+		}
+		if len(mc.Parameters) != 0 {
+			t.Errorf("parameters = %+v, want empty", mc.Parameters)
+		}
+	})
+
 	t.Run("invalid provider token errors", func(t *testing.T) {
 		path := writeTempModelConfigFile(t, "provider: bedrock\nmodel: claude-sonnet-4-5\n")
 		if _, err := parseModelConfigFile(path); err == nil {
