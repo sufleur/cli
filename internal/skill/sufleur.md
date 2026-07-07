@@ -101,12 +101,13 @@ Produces:
   output-schema.json           # absent if the version has no schema
   README.md                    # always present (empty if never set)
   metadata.yaml                # flat key→value, "{}" when empty
+  model-config.yaml            # provider/model/parameters, absent if unset
   eval.yaml                    # the version's eval config (skeleton if none)
 ```
 
 ### 2. Edit files locally
 
-Use whatever file tools you already have. The `.mustache` files are plain text; `metadata.yaml` is flat scalar key→value (types inferred from YAML scalars); `output-schema.json` is a JSON Schema object.
+Use whatever file tools you already have. The `.mustache` files are plain text; `metadata.yaml` is flat scalar key→value (types inferred from YAML scalars); `output-schema.json` is a JSON Schema object; `model-config.yaml` (when present) has `provider`/`model`/`parameters` keys, `provider` lowercase.
 
 ### 3. Render to verify
 
@@ -146,6 +147,7 @@ sufleur version set-output-schema @workspace/name@draft --file ./working/output-
 
 # model config — provider/model/parameters (required before an eval can run)
 sufleur version set-model-config @workspace/name@draft --provider anthropic --model claude-sonnet-4-5 --params '{"temperature":0.7}'
+sufleur version set-model-config @workspace/name@draft --from-file ./working/model-config.yaml
 
 # readme — replace from a file, inline string, or stdin (mutually exclusive)
 sufleur version set-readme @workspace/name@draft --file ./working/README.md
@@ -154,6 +156,8 @@ echo "# Piped" | sufleur version set-readme @workspace/name@draft --file -
 ```
 
 `set-metadata`'s two modes are mutually exclusive. Use `--from-file` when the YAML is the source of truth (it deletes any key not present in the file); use the typed flags for additive patches.
+
+`set-model-config`'s `--from-file` and `--provider`/`--model`/`--params` flags are likewise mutually exclusive — `--from-file` reads the same `provider`/`model`/`parameters` shape `version dump` writes to `model-config.yaml`, so the full dump → edit → push loop covers model config too.
 
 To learn what a prompt does without dumping the whole version, fetch just the README:
 
@@ -381,7 +385,7 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Set metadata (patch) | `sufleur version set-metadata @workspace/name@draft --string KEY=VAL` |
 | Delete metadata key | `sufleur version delete-metadata @workspace/name@draft --key KEY` |
 | Set output schema | `sufleur version set-output-schema @workspace/name@draft --file ./schema.json` |
-| Set model config | `sufleur version set-model-config @workspace/name@draft --provider anthropic --model NAME [--params '{...}']` |
+| Set model config | `sufleur version set-model-config @workspace/name@draft --provider anthropic --model NAME [--params '{...}']` (or `--from-file ./model-config.yaml`) |
 | Read README | `sufleur version get-readme @workspace/name@version` |
 | Set README | `sufleur version set-readme @workspace/name@draft [--content STR \| --file PATH]` |
 | List files | `sufleur file list @workspace/name@draft` |
