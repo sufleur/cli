@@ -169,6 +169,7 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `version set-metadata @ws/name@draft --string K=V` (or `--from-file …`) | Patch or sync metadata |
 | `version delete-metadata @ws/name@draft --key K` | Remove a metadata key |
 | `version set-output-schema @ws/name@draft --file schema.json` | Replace the version's output schema |
+| `version set-model-config @ws/name@draft --provider anthropic --model NAME [--params '{...}']` | Set the version's provider/model/parameters |
 | `version set-readme @ws/name@draft [--content STR \| --file PATH]` | Replace the version's README |
 | `version get-readme @ws/name@version` | Print the version's README to stdout (raw markdown) |
 | `version dump @ws/name@version --to ./dir` | Export files, output schema, README, and metadata to disk |

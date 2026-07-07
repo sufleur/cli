@@ -216,6 +216,48 @@ func TestClient_SetPromptVersionOutputSchema(t *testing.T) {
 	}
 }
 
+func TestClient_SetPromptVersionModelConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req graphqlRequest
+		_ = json.Unmarshal(body, &req)
+		if !strings.Contains(req.Query, "promptVersionSetModelConfig") {
+			t.Errorf("query missing promptVersionSetModelConfig: %q", req.Query)
+		}
+		if !strings.Contains(req.Query, "$modelConfig: ModelConfigInput!") {
+			t.Errorf("query missing $modelConfig: ModelConfigInput!: %q", req.Query)
+		}
+		modelConfig, ok := req.Variables["modelConfig"].(map[string]any)
+		if !ok {
+			t.Fatalf("modelConfig variable = %+v", req.Variables["modelConfig"])
+		}
+		if modelConfig["provider"] != "ANTHROPIC" {
+			t.Errorf("provider = %v, want ANTHROPIC", modelConfig["provider"])
+		}
+		if modelConfig["model"] != "claude-sonnet-4-5" {
+			t.Errorf("model = %v", modelConfig["model"])
+		}
+		params, ok := modelConfig["parameters"].(map[string]any)
+		if !ok || params["temperature"] != 0.7 {
+			t.Errorf("parameters = %+v", modelConfig["parameters"])
+		}
+		_, _ = w.Write([]byte(`{"data":{"promptVersionSetModelConfig":{"version":"1.0.0","status":"DRAFT","createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-12T10:23:45Z","metadata":{},"outputSchema":null,"modelConfig":{"provider":"ANTHROPIC","model":"claude-sonnet-4-5","parameters":{"temperature":0.7}},"files":[]}}}`))
+	}))
+	defer server.Close()
+
+	v, err := New(server.URL, "u_test", false).SetPromptVersionModelConfig(context.Background(), "acme", "welcome", "1.0.0", ModelConfig{
+		Provider:   "ANTHROPIC",
+		Model:      "claude-sonnet-4-5",
+		Parameters: map[string]any{"temperature": 0.7},
+	})
+	if err != nil {
+		t.Fatalf("SetPromptVersionModelConfig: %v", err)
+	}
+	if v.ModelConfig == nil || v.ModelConfig.Provider != "ANTHROPIC" || v.ModelConfig.Model != "claude-sonnet-4-5" {
+		t.Errorf("modelConfig not echoed: %+v", v.ModelConfig)
+	}
+}
+
 func TestClient_SetPromptVersionReadme(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)

@@ -16,14 +16,15 @@ import (
 )
 
 var versionDumpCmd = &cobra.Command{
-	Use:           "dump @workspace/name@version --to ./dir",
-	Short:         "Export a version's files, output schema, and metadata into a directory",
+	Use:   "dump @workspace/name@version --to ./dir",
+	Short: "Export a version's files, output schema, and metadata into a directory",
 	Long: `Writes the version into the target directory:
 
   <dir>/files/<filename>      one file per PromptFile, content verbatim
   <dir>/output-schema.json    pretty-printed JSON; omitted if the version has no schema
   <dir>/README.md             raw markdown; always written (empty if never set)
   <dir>/metadata.yaml         flat key-value YAML; "{}" if metadata is empty
+  <dir>/model-config.yaml     provider/model/parameters; omitted if no model config is set
   <dir>/eval.yaml             the version's eval config as YAML; always written
                               (a complete skeleton if no eval is configured)
 
@@ -85,6 +86,7 @@ non-empty directory; otherwise dump aborts if the target already has files.`,
 				"hasOutputSchema": v.OutputSchema != nil,
 				"readmeBytes":     len(v.Readme),
 				"metadataKeys":    len(v.Metadata),
+				"hasModelConfig":  v.ModelConfig != nil,
 				"evalBytes":       len(evalYAML),
 			})
 		}
@@ -156,6 +158,21 @@ func writeDump(dir string, v *userapi.PromptVersion, evalYAML string) error {
 	}
 	if err := os.WriteFile(metadataPath, raw, 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", metadataPath, err)
+	}
+
+	if v.ModelConfig != nil {
+		modelConfigPath := filepath.Join(dir, "model-config.yaml")
+		raw, err := yaml.Marshal(modelConfigYAML{
+			Provider:   strings.ToLower(v.ModelConfig.Provider),
+			Model:      v.ModelConfig.Model,
+			Parameters: v.ModelConfig.Parameters,
+		})
+		if err != nil {
+			return fmt.Errorf("encoding model config: %w", err)
+		}
+		if err := os.WriteFile(modelConfigPath, raw, 0o644); err != nil {
+			return fmt.Errorf("writing %s: %w", modelConfigPath, err)
+		}
 	}
 
 	evalPath := filepath.Join(dir, "eval.yaml")

@@ -141,6 +141,15 @@ func (c *client) FetchPromptVersion(ctx context.Context, promptName, constraint 
 		}
 	}
 
+	var modelConfig map[string]interface{}
+	if v.ModelConfig != nil {
+		modelConfig = map[string]interface{}{
+			"provider":   v.ModelConfig.Provider,
+			"model":      v.ModelConfig.Model,
+			"parameters": map[string]interface{}(v.ModelConfig.Parameters),
+		}
+	}
+
 	return &generator.PromptData{
 		Name:         promptName,
 		Version:      v.Version,
@@ -148,6 +157,7 @@ func (c *client) FetchPromptVersion(ctx context.Context, promptName, constraint 
 		Status:       v.Status,
 		Metadata:     v.Metadata,
 		OutputSchema: v.OutputSchema,
+		ModelConfig:  modelConfig,
 		Files:        files,
 	}, nil
 }

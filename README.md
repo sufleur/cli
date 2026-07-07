@@ -36,7 +36,7 @@ The generated file inlines every prompt (no runtime fetches) and exposes `getPro
 | Auth | `login`, `logout`, `me` |
 | Workspaces | `workspace list` |
 | Prompts | `prompt create / get / list / update` |
-| Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-readme / get-readme / dump` |
+| Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-model-config / set-readme / get-readme / dump` |
 | Files | `file create / update / delete / list / set-entrypoint` |
 | Evals | `eval get / validate / push / delete / run / runs / show / watch` |
 | Datasets | `dataset create / get / list / update / dump`, plus `dataset version / schema / cases` subgroups |
@@ -58,7 +58,7 @@ A **collection** is a workspace-scoped group of prompts, referenced as `@workspa
 
 ### Evals
 
-An **eval** scores a prompt version against a dataset — it pins the dataset, the candidate's provider/model/params, optional LLM judges, [CEL](https://github.com/google/cel-spec) assertions over the output, and a passing threshold. Evals are authored as YAML on a draft version; the loop mirrors prompt editing:
+An **eval** scores a prompt version against a dataset — it pins the dataset, the candidate's input mapping, optional LLM judges, [CEL](https://github.com/google/cel-spec) assertions over the output, and a passing threshold. (The provider, model, and parameters the candidate and judges run with come from each prompt version's model config — set with `sufleur version set-model-config` or in the web app.) Evals are authored as YAML on a draft version; the loop mirrors prompt editing:
 
 - `sufleur eval get @ws/name@draft --file ./eval.yaml` — dump the current eval YAML (a ready-to-edit skeleton if none exists).
 - `sufleur eval validate @ws/name@draft --file ./eval.yaml` — parse and type-check; saves nothing.

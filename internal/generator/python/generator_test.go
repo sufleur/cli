@@ -927,6 +927,36 @@ func TestOutputSchema_SinglePrompt(t *testing.T) {
 	assertContains(t, output, "_TestStructuredOutputParseSuccess | ParseFailure")
 }
 
+func TestModelConfig_EmittedInMetadata(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/with-model-config",
+			Name:    "with-model-config",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			ModelConfig: map[string]interface{}{
+				"provider": "anthropic",
+				"model":    "claude-sonnet-4-6",
+				"parameters": map[string]interface{}{
+					"temperature": float64(0.2),
+					"maxTokens":   float64(1024),
+				},
+			},
+			Files: []generator.PromptFile{
+				{Name: "userPrompt", Content: "Hello", IsEntrypoint: true},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	assertContains(t, output, `"modelConfig":`)
+	assertContains(t, output, "json.loads(")
+	assertContains(t, output, `"provider": "anthropic"`)
+	assertContains(t, output, `"model": "claude-sonnet-4-6"`)
+	assertContains(t, output, `"maxTokens": 1024`)
+}
+
 func TestOutputSchema_MixedPrompts(t *testing.T) {
 	prompts := []generator.PromptData{
 		{

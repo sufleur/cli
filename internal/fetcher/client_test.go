@@ -292,6 +292,64 @@ func TestFetchPromptVersion_WithOutputSchema(t *testing.T) {
 	}
 }
 
+func TestFetchPromptVersion_WithModelConfig(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := `{
+			"data": {
+				"prompt": {
+					"description": "Prompt with model config",
+					"version": {
+						"version": "3.0.0",
+						"status": "PUBLISHED",
+						"metadata": {},
+						"outputSchema": null,
+						"modelConfig": {
+							"provider": "ANTHROPIC",
+							"model": "claude-sonnet-4-6",
+							"parameters": {"temperature": 0.2, "maxTokens": 1024}
+						},
+						"files": [
+							{
+								"name": "userPrompt",
+								"content": "Hello",
+								"isEntrypoint": true,
+								"inputSchema": null,
+								"schemaWarnings": []
+							}
+						]
+					}
+				}
+			}
+		}`
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, "test-key", "", false)
+	pd, err := c.FetchPromptVersion(context.Background(), "with-model-config", "^3.0.0", nil)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if pd.ModelConfig == nil {
+		t.Fatal("expected non-nil ModelConfig")
+	}
+	if pd.ModelConfig["provider"] != "ANTHROPIC" {
+		t.Errorf("expected provider ANTHROPIC, got %v", pd.ModelConfig["provider"])
+	}
+	if pd.ModelConfig["model"] != "claude-sonnet-4-6" {
+		t.Errorf("expected model claude-sonnet-4-6, got %v", pd.ModelConfig["model"])
+	}
+	params, _ := pd.ModelConfig["parameters"].(map[string]interface{})
+	if params == nil {
+		t.Fatal("expected ModelConfig parameters")
+	}
+	if params["maxTokens"] != float64(1024) {
+		t.Errorf("expected maxTokens 1024, got %v", params["maxTokens"])
+	}
+}
+
 func TestFetchPromptVersion_NotFound(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -83,6 +83,18 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("prompts not found: %s", strings.Join(e.MissingPrompts, ", "))
 }
 
+// modelConfigResult is the shape of the version's modelConfig sub-selection.
+// modelConfig is a structured GraphQL object (not a JSON scalar) — provider is
+// an enum (decoded as a string) and model is a plain string, so both need their
+// own fields for go-graphql-client to emit `modelConfig { provider model
+// parameters }`. Only parameters is itself a JSON scalar. Referenced via
+// pointer so a null modelConfig decodes to nil.
+type modelConfigResult struct {
+	Provider   string
+	Model      string
+	Parameters JSON `scalar:"true"`
+}
+
 // fetchPromptVersionResult is the shape of the resolved version sub-selection.
 // It is referenced via pointer in fetchPromptVersionQuery so a null version
 // (no match for the constraint) decodes to nil rather than zero-value confusion.
@@ -91,6 +103,7 @@ type fetchPromptVersionResult struct {
 	Status       string
 	Metadata     JSON `scalar:"true"`
 	OutputSchema JSON `scalar:"true"`
+	ModelConfig  *modelConfigResult
 	Files        []promptFileResponse
 }
 
