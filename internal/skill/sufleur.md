@@ -138,7 +138,7 @@ sufleur file set-entrypoint @workspace/name@draft --name welcome --clear
 sufleur version set-metadata @workspace/name@draft --from-file ./working/metadata.yaml
 
 # metadata — single-key patch (additive, leaves other keys untouched)
-sufleur version set-metadata @workspace/name@draft --string model=claude-sonnet-4-5 --float temperature=0.7
+sufleur version set-metadata @workspace/name@draft --string owner=payments-team --float weight=0.5
 sufleur version delete-metadata @workspace/name@draft --key old-key
 
 # output schema
@@ -232,7 +232,7 @@ Once a version is published (in the web app), point an eval at it via `dataset.r
 
 ## Evals
 
-An **eval** is a YAML definition attached to a specific prompt **version** (addressed by the same `@workspace/name@version` ref). It pins a dataset, the candidate prompt's provider/model/params and input mapping, optional LLM **judges**, **assertions** over the output, and a passing threshold. Running it executes the candidate over every dataset case and reports a pass-rate and a verdict. There is exactly one eval per version.
+An **eval** is a YAML definition attached to a specific prompt **version** (addressed by the same `@workspace/name@version` ref). It pins a dataset, the candidate prompt's input mapping, optional LLM **judges**, **assertions** over the output, and a passing threshold. The provider, model, and parameters the candidate — and each judge — runs with come from each prompt **version's** model config (set with `sufleur version set-model-config` or in the web app), not from the eval. Running it executes the candidate over every dataset case and reports a pass-rate and a verdict. There is exactly one eval per version.
 
 The backend is the source of truth for the schema — run `sufleur eval get @workspace/name@version` to print the current definition (a complete, editable skeleton when none exists yet) rather than authoring blind. The top-level shape:
 
@@ -241,10 +241,7 @@ description: extraction quality
 dataset:
   ref: "@workspace/dataset@2.0.0"   # dataset version to run against; null until set
 prompt:
-  provider: anthropic                # lowercase: anthropic|openai|google|mistral|deepseek|xai|groq|together
-  model: claude-sonnet-4-5
-  params: { temperature: 0 }
-  inputMapping:
+  inputMapping:                      # provider/model/params come from this version's model config, not the eval
     files:                           # each prompt file declares its own input schema,
       - file: systemPrompt           # so each file carries its own inputs
         role: system                 # user|system
@@ -256,9 +253,7 @@ prompt:
           text: case.text
 judges:
   - alias: quality
-    prompt: "@workspace/judge@1.0.0"
-    provider: openai
-    model: gpt-4o
+    prompt: "@workspace/judge@1.0.0"   # the judge's provider/model/params come from ITS version's model config
     inputMapping:
       files:
         - file: userPrompt
@@ -272,7 +267,7 @@ verdict:
   passingThreshold: 0.8              # 0–1; omit/null for no gate
 ```
 
-Provider tokens are **lowercase** in the YAML. Check which providers a workspace has configured (an eval can only run against those) with `sufleur workspace providers @workspace` — add `--models` to also list each provider's available models.
+Provider, model, and parameters now live on each prompt **version's** model config (set via `sufleur version set-model-config` or the web app), not in the eval YAML — so before an eval can run, the candidate version **and every judge version** must have a model config set. An eval can only run against providers the workspace has configured; check with `sufleur workspace providers @workspace` — add `--models` to also list each provider's available models.
 
 ### Local loop: dump → edit → validate → push
 
