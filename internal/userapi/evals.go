@@ -2,6 +2,7 @@ package userapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -76,9 +77,88 @@ type EvalRunsPage struct {
 	Total int       `json:"total"`
 }
 
+// EvalRunAssertion is a run-level snapshotted assertion (one set per run).
+type EvalRunAssertion struct {
+	ID           string `json:"id"`
+	Ordinal      int    `json:"ordinal"`
+	Label        string `json:"label"`
+	Kind         string `json:"kind"`
+	Definition   string `json:"definition"`
+	Status       string `json:"status"`
+	Result       string `json:"result"`
+	ErrorMessage string `json:"errorMessage"`
+}
+
+// EvalRunJudge is a run-level snapshotted judge.
+type EvalRunJudge struct {
+	ID              string `json:"id"`
+	Alias           string `json:"alias"`
+	PromptVersionID string `json:"promptVersionId"`
+	Provider        string `json:"provider"`
+	Model           string `json:"model"`
+}
+
+// RenderedPrompt is one entrypoint exactly as sent to the provider for a case.
+type RenderedPrompt struct {
+	FileName       string `json:"fileName"`
+	Role           string `json:"role"`
+	RenderedPrompt string `json:"renderedPrompt"`
+}
+
+// EvalCaseAssertion references a run-level assertion (by EvalRunAssertionID)
+// with this case's pass/fail and optional error/message.
+type EvalCaseAssertion struct {
+	EvalRunAssertionID string `json:"evalRunAssertionId"`
+	Passed             bool   `json:"passed"`
+	Error              string `json:"error"`
+	Message            string `json:"message"`
+}
+
+// EvalCaseJudge references a run-level judge (by EvalRunJudgeID) with this
+// case's invocation result. Input/Output are arbitrary JSON.
+type EvalCaseJudge struct {
+	EvalRunJudgeID  string           `json:"evalRunJudgeId"`
+	Input           json.RawMessage  `json:"input"`
+	Output          json.RawMessage  `json:"output"`
+	Score           *float64         `json:"score"`
+	Error           string           `json:"error"`
+	RenderedPrompts []RenderedPrompt `json:"renderedPrompts"`
+}
+
+// EvalRunCaseDetail is per-case verbose detail. ResolvedInputs and OutputParsed
+// are arbitrary JSON (raw). Assertions/Judges reference the run-level rows.
+type EvalRunCaseDetail struct {
+	CaseIndex       int                 `json:"caseIndex"`
+	Passed          bool                `json:"passed"`
+	ResolvedInputs  json.RawMessage     `json:"resolvedInputs"`
+	OutputRaw       string              `json:"outputRaw"`
+	OutputParsed    json.RawMessage     `json:"outputParsed"`
+	Assertions      []EvalCaseAssertion `json:"assertions"`
+	Judges          []EvalCaseJudge     `json:"judges"`
+	RenderedPrompts []RenderedPrompt    `json:"renderedPrompts"`
+	ProviderError   string              `json:"providerError"`
+}
+
+// EvalRunDetail is a run plus its run-level assertions/judges and per-case
+// detail, fetched in one query for `eval cases` / `eval case`. It embeds
+// EvalRun and adds the three GraphQL resolve fields with their wire tags, so
+// the whole `evalRun(id)` response (summary scalars + resolve fields) decodes
+// directly into this struct in one step — no intermediate anonymous struct
+// needed.
+type EvalRunDetail struct {
+	EvalRun
+	Assertions []EvalRunAssertion  `json:"assertions"`
+	Judges     []EvalRunJudge      `json:"judges"`
+	Cases      []EvalRunCaseDetail `json:"caseDetails"`
+}
+
 const evalFields = "id description promptVersionId datasetVersionId provider model passingThreshold createdAt updatedAt"
 const evalRunFields = "id evalId status verdict provider model totalScore passingThreshold processedCases errorMessage detailAvailable createdAt startedAt finishedAt"
 const evalIssueFields = "path line column message code blocking"
+const evalRunAssertionFields = "id ordinal label kind definition status result errorMessage"
+const evalRunJudgeFields = "id alias promptVersionId provider model"
+const renderedPromptFields = "fileName role renderedPrompt"
+const evalRunCaseDetailFields = "caseIndex passed resolvedInputs outputRaw outputParsed assertions judges renderedPrompts { " + renderedPromptFields + " } providerError"
 
 // ValidateEvalYaml parses and validates an eval YAML document against a prompt
 // version without persisting it. Used by `eval validate` and the pre-check in
@@ -199,6 +279,33 @@ func (c *Client) GetEvalRun(ctx context.Context, runID string) (*EvalRun, error)
 	}
 	err := c.Do(ctx, Request{
 		Query:     "query EvalRun($id: ID!) { evalRun(id: $id) { " + evalRunFields + " } }",
+		Variables: map[string]any{"id": runID},
+	}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Run == nil {
+		return nil, errMissingData("evalRun")
+	}
+	return resp.Run, nil
+}
+
+// GetEvalRunDetail fetches a single run plus its run-level assertions, judges,
+// and per-case detail (resolved inputs, parsed output, per-case
+// assertion/judge results, rendered prompts) in one query. This is a heavier
+// fetch than GetEvalRun and is only used for on-demand inspection (`eval
+// cases` / `eval case`), never on the hot poll loop. Like GetEvalRun, runs are
+// addressed by their global UUID and authorised by the bearer subject, so no
+// workspace header is required.
+func (c *Client) GetEvalRunDetail(ctx context.Context, runID string) (*EvalRunDetail, error) {
+	var resp struct {
+		Run *EvalRunDetail `json:"evalRun"`
+	}
+	err := c.Do(ctx, Request{
+		Query: "query EvalRunDetail($id: ID!) { evalRun(id: $id) { " + evalRunFields +
+			" assertions { " + evalRunAssertionFields + " }" +
+			" judges { " + evalRunJudgeFields + " }" +
+			" caseDetails { " + evalRunCaseDetailFields + " } } }",
 		Variables: map[string]any{"id": runID},
 	}, &resp)
 	if err != nil {
