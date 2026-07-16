@@ -35,6 +35,8 @@ func init() {
 		evalRunsCmd,
 		evalShowCmd,
 		evalWatchCmd,
+		evalCasesCmd,
+		evalCaseCmd,
 	)
 }
 
