@@ -301,9 +301,13 @@ sufleur eval run @workspace/name@draft --watch        # …and stream progress t
 sufleur eval runs @workspace/name@draft               # list recent runs (newest first)
 sufleur eval show <run-id>                            # one run's status, verdict, score, timing
 sufleur eval watch <run-id>                           # follow an in-flight run to completion
+sufleur eval cases <run-id>                           # per-case pass/fail table (--failed for failures only)
+sufleur eval case <run-id> <index>                   # one case: inputs, output, assertions, judges (--prompts)
 ```
 
 A run needs (1) a pinned `dataset.ref` and (2) the candidate and judge providers configured in the workspace; `eval run` errors clearly if either is missing. A run is an immutable snapshot of the eval config — to change what runs, edit `eval.yaml` and `eval push` again.
+
+**Inspecting results.** After a run succeeds, `eval cases <run-id>` prints a per-case pass/fail overview (assertions passed/total, judge count, provider errors); add `--failed` to list only failing cases. `eval case <run-id> <index>` drills into a single case — resolved inputs, model output (parsed when available, else raw), each assertion's ✓/✗ with its message, and each judge's score — with `--prompts` to also dump the fully rendered candidate and judge prompts. Both accept `--json`. Per-case detail exists only once a run has `SUCCEEDED` and before it is retention-purged; while queued/running or after purge the commands say so.
 
 **Exit codes (for CI).** `eval run --watch` and `eval watch` exit `0` when the run passes (or has no passing threshold), and non-zero when the verdict fails, the run errors, or the watch times out. Without `--watch`, `eval run` returns as soon as the run is enqueued.
 
@@ -403,6 +407,8 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | List eval runs | `sufleur eval runs @workspace/name@version [--take N --skip N]` |
 | Show eval run | `sufleur eval show <run-id>` |
 | Watch eval run | `sufleur eval watch <run-id>` |
+| List run cases | `sufleur eval cases <run-id> [--failed]` |
+| Inspect one case | `sufleur eval case <run-id> <index> [--prompts]` |
 | List providers | `sufleur workspace providers @workspace [--models]` |
 | Install a collection | `sufleur add @workspace/+name` |
 | Create collection | `sufleur collection create @workspace/+name --description "..."` |

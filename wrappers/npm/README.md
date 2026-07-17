@@ -184,7 +184,9 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `eval delete @ws/name@version` | Remove the eval from a version |
 | `eval run @ws/name@version [--watch]` | Enqueue a run; `--watch` streams to completion (CI gate) |
 | `eval runs @ws/name@version` | List recent runs, newest first |
-| `eval show <run-id>` / `eval watch <run-id>` | Inspect or follow a single run |
+| `eval show <run-id>` / `eval watch <run-id>` | Summarise or follow a single run |
+| `eval cases <run-id> [--failed]` | Per-case pass/fail table for a succeeded run |
+| `eval case <run-id> <index> [--prompts]` | One case's inputs, output, assertions, and judges |
 | `dataset create @ws/name [--description ...]` | Create a dataset and its initial draft (private) |
 | `dataset list @ws` / `dataset get @ws/name` | List datasets, or show one with its versions |
 | `dataset update @ws/name --description "..."` | Edit the description |

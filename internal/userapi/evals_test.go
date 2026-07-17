@@ -201,6 +201,87 @@ func TestClient_GetEvalRun(t *testing.T) {
 	}
 }
 
+func TestClient_GetEvalRunDetail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req graphqlRequest
+		_ = json.Unmarshal(body, &req)
+		if req.Variables["id"] != "r1" {
+			t.Errorf("id = %v", req.Variables["id"])
+		}
+		for _, want := range []string{"caseDetails", "renderedPrompts", "assertions", "judges", "renderedPrompts { fileName role renderedPrompt }"} {
+			if !strings.Contains(req.Query, want) {
+				t.Errorf("query missing %q: %q", want, req.Query)
+			}
+		}
+		_, _ = w.Write([]byte(`{"data":{"evalRun":{` +
+			`"id":"r1","evalId":"e1","status":"SUCCEEDED","verdict":"FAILED","provider":"ANTHROPIC","model":"claude",` +
+			`"totalScore":0.5,"passingThreshold":0.8,"processedCases":2,"errorMessage":null,"detailAvailable":true,` +
+			`"createdAt":"2024-03-12T10:23:45Z","startedAt":"2024-03-12T10:24:00Z","finishedAt":"2024-03-12T10:25:00Z",` +
+			`"assertions":[` +
+			`{"id":"a1","ordinal":0,"label":"contains foo","kind":"CEL","definition":"output.contains('foo')","status":"ACTIVE","result":"","errorMessage":""},` +
+			`{"id":"a2","ordinal":1,"label":"is json","kind":"CEL","definition":"output.isJson()","status":"ACTIVE","result":"","errorMessage":""}` +
+			`],` +
+			`"judges":[{"id":"j1","alias":"quality","promptVersionId":"pv1","provider":"OPENAI","model":"gpt-4o"}],` +
+			`"caseDetails":[` +
+			`{"caseIndex":0,"passed":true,"resolvedInputs":{"q":"hi"},"outputRaw":"foo bar","outputParsed":{"answer":"foo bar"},` +
+			`"assertions":[{"evalRunAssertionId":"a1","passed":true,"error":"","message":""}],` +
+			`"judges":[{"evalRunJudgeId":"j1","input":{"q":"hi"},"output":{"verdict":"good"},"score":0.9,"error":"","renderedPrompts":[{"fileName":"judge.md","role":"user","renderedPrompt":"rate this"}]}],` +
+			`"renderedPrompts":[{"fileName":"main.md","role":"user","renderedPrompt":"hi"}],` +
+			`"providerError":""},` +
+			`{"caseIndex":1,"passed":false,"resolvedInputs":{"q":"bye"},"outputRaw":"","outputParsed":null,` +
+			`"assertions":[{"evalRunAssertionId":"a2","passed":false,"error":"timeout","message":"provider timed out"}],` +
+			`"judges":[{"evalRunJudgeId":"j1","input":{"q":"bye"},"output":null,"score":null,"error":"provider timed out","renderedPrompts":[]}],` +
+			`"renderedPrompts":[{"fileName":"main.md","role":"user","renderedPrompt":"bye"}],` +
+			`"providerError":"provider timed out"}` +
+			`]}}}`))
+	}))
+	defer server.Close()
+
+	run, err := New(server.URL, "u_test", false).GetEvalRunDetail(context.Background(), "r1")
+	if err != nil {
+		t.Fatalf("GetEvalRunDetail: %v", err)
+	}
+	if run.ID != "r1" || run.Verdict != "FAILED" {
+		t.Errorf("got run %+v", run.EvalRun)
+	}
+	if len(run.Assertions) != 2 || len(run.Judges) != 1 || len(run.Cases) != 2 {
+		t.Fatalf("counts: assertions=%d judges=%d cases=%d", len(run.Assertions), len(run.Judges), len(run.Cases))
+	}
+
+	case0, case1 := run.Cases[0], run.Cases[1]
+	if !case0.Passed {
+		t.Errorf("case0.Passed = false, want true")
+	}
+	if case1.Passed {
+		t.Errorf("case1.Passed = true, want false")
+	}
+	if case1.ProviderError != "provider timed out" {
+		t.Errorf("case1.ProviderError = %q", case1.ProviderError)
+	}
+	if case0.OutputParsed == nil || string(case0.OutputParsed) == "null" {
+		t.Errorf("case0.OutputParsed should be present, got %s", case0.OutputParsed)
+	}
+	if case1.OutputParsed != nil && string(case1.OutputParsed) != "null" {
+		t.Errorf("case1.OutputParsed should be null, got %s", case1.OutputParsed)
+	}
+	if len(case0.Assertions) != 1 || case0.Assertions[0].EvalRunAssertionID != "a1" {
+		t.Errorf("case0.Assertions = %+v", case0.Assertions)
+	}
+	if len(case1.Assertions) != 1 || case1.Assertions[0].EvalRunAssertionID != "a2" {
+		t.Errorf("case1.Assertions = %+v", case1.Assertions)
+	}
+	if len(case0.Judges) != 1 || case0.Judges[0].Score == nil || *case0.Judges[0].Score != 0.9 {
+		t.Errorf("case0.Judges = %+v", case0.Judges)
+	}
+	if len(case1.Judges) != 1 || case1.Judges[0].Score != nil {
+		t.Errorf("case1.Judges[0].Score should be nil, got %+v", case1.Judges[0].Score)
+	}
+	if len(case0.RenderedPrompts) != 1 || case0.RenderedPrompts[0].FileName != "main.md" {
+		t.Errorf("case0.RenderedPrompts = %+v", case0.RenderedPrompts)
+	}
+}
+
 func TestClient_ListEvalRuns(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
