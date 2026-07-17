@@ -38,7 +38,7 @@ The generated file inlines every prompt (no runtime fetches) and exposes `getPro
 | Prompts | `prompt create / get / list / update` |
 | Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-model-config / set-readme / get-readme / dump` |
 | Files | `file create / update / delete / list / set-entrypoint` |
-| Evals | `eval get / validate / push / delete / run / runs / show / watch` |
+| Evals | `eval get / validate / push / delete / run / runs / show / watch / cases / case` |
 | Datasets | `dataset create / get / list / update / dump`, plus `dataset version / schema / cases` subgroups |
 | Collections | `collection create / get / list-prompts / link / set-readme / set-description` |
 | Local render | `prompt render <dir> --entrypoint <name> --vars '{...}'` |
@@ -64,7 +64,8 @@ An **eval** scores a prompt version against a dataset — it pins the dataset, t
 - `sufleur eval validate @ws/name@draft --file ./eval.yaml` — parse and type-check; saves nothing.
 - `sufleur eval push @ws/name@draft --file ./eval.yaml` — validate, then save.
 - `sufleur eval run @ws/name@draft [--watch]` — enqueue a run; with `--watch` it streams to completion and exits non-zero on a failing verdict, so it works as a CI gate.
-- `sufleur eval runs / show <id> / watch <id>` — list, inspect, and follow runs.
+- `sufleur eval runs / show <id> / watch <id>` — list, summarise, and follow runs.
+- `sufleur eval cases <id> [--failed]` / `eval case <id> <index> [--prompts]` — drill into a succeeded run's per-case results: the pass/fail table, then a single case's inputs, output, assertions, and judges.
 
 An eval pins a **dataset** version through `dataset.ref` — and those datasets are authored from the CLI too (see below). Full guide: <https://sufleur.com/docs/evals>.
 
