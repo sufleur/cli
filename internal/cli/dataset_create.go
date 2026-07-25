@@ -9,7 +9,7 @@ import (
 var datasetCreateCmd = &cobra.Command{
 	Use:           "create @workspace/name",
 	Short:         "Create a new dataset",
-	Long:          "Creates a new dataset and its initial draft version. Names follow npm conventions (lowercase, 5–214 chars; letters, digits, '-', '_', '.'). New datasets are private; change visibility from the web app.",
+	Long:          "Creates a new dataset and its initial draft version. Names follow npm conventions (lowercase, 5–214 chars; letters, digits, '-', '_', '.'). Datasets are always workspace-scoped.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
 	SilenceUsage:  true,
@@ -34,7 +34,7 @@ var datasetCreateCmd = &cobra.Command{
 		if asJSON {
 			return printJSON(cmd, d)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Created @%s/%s (%s) with an initial draft\n", ref.Workspace, d.Name, d.Visibility)
+		fmt.Fprintf(cmd.OutOrStdout(), "Created @%s/%s with an initial draft\n", ref.Workspace, d.Name)
 		return nil
 	},
 }
