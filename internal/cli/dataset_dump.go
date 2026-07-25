@@ -19,7 +19,7 @@ var datasetDumpCmd = &cobra.Command{
 
   <dir>/schema.json     the JSON Schema (pretty-printed; "{}" when unset)
   <dir>/cases.jsonl     one JSON object per line (empty when the version has no cases)
-  <dir>/dataset.yaml    name, description, visibility, version, status, caseCount
+  <dir>/dataset.yaml    name, description, version, status, caseCount
 
 The directory is created if it doesn't exist. Pass --force to overwrite a
 non-empty directory. Push changes back with ` + "`dataset schema set`" + `,
@@ -105,7 +105,6 @@ func writeDatasetDump(dir string, d *userapi.Dataset, v *userapi.DatasetVersion,
 	meta := map[string]any{
 		"name":        d.Name,
 		"description": d.Description,
-		"visibility":  d.Visibility,
 		"version":     v.Version,
 		"status":      v.Status,
 		"caseCount":   v.CaseCount,

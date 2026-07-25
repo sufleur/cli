@@ -6,13 +6,11 @@ import (
 )
 
 // Dataset mirrors the queryable subset of the GraphQL Dataset type that the
-// CLI surfaces. Visibility decodes to the enum value name ("PUBLIC" /
-// "PRIVATE"). Versions is only populated by GetDataset.
+// CLI surfaces. Versions is only populated by GetDataset.
 type Dataset struct {
 	ID          string               `json:"id"`
 	Name        string               `json:"name"`
 	Description string               `json:"description"`
-	Visibility  string               `json:"visibility"`
 	CreatedAt   time.Time            `json:"createdAt"`
 	UpdatedAt   time.Time            `json:"updatedAt"`
 	Versions    *DatasetVersionsPage `json:"versions,omitempty"`
@@ -24,7 +22,7 @@ type DatasetsPage struct {
 	Total int       `json:"total"`
 }
 
-const datasetFields = "id name description visibility createdAt updatedAt"
+const datasetFields = "id name description createdAt updatedAt"
 
 // GetDataset fetches a single dataset by its bare name, including a page of its
 // versions (up to 100, newest-resolved order). The workspace is sent via the
@@ -78,8 +76,8 @@ func (c *Client) ListDatasets(ctx context.Context, workspace, search string, tak
 }
 
 // CreateDataset creates a new dataset (and its initial draft version). The
-// description is optional; pass an empty string to omit it. New datasets are
-// created PRIVATE by the backend — visibility is changed only via the web app.
+// description is optional; pass an empty string to omit it. Datasets are
+// always workspace-scoped.
 func (c *Client) CreateDataset(ctx context.Context, workspace, name, description string) (*Dataset, error) {
 	vars := map[string]any{"name": name}
 	if description != "" {
@@ -102,8 +100,7 @@ func (c *Client) CreateDataset(ctx context.Context, workspace, name, description
 	return resp.Dataset, nil
 }
 
-// UpdateDataset replaces the description on an existing dataset. Visibility is
-// not editable from the CLI — it is managed in the web app.
+// UpdateDataset replaces the description on an existing dataset.
 func (c *Client) UpdateDataset(ctx context.Context, workspace, name, description string) (*Dataset, error) {
 	var resp struct {
 		Dataset *Dataset `json:"updateDataset"`

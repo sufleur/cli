@@ -9,7 +9,7 @@ import (
 var datasetUpdateCmd = &cobra.Command{
 	Use:           "update @workspace/name --description \"...\"",
 	Short:         "Update a dataset's description",
-	Long:          "Replaces the description on an existing dataset. Visibility is changed from the web app, not the CLI.",
+	Long:          "Replaces the description on an existing dataset.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
 	SilenceUsage:  true,

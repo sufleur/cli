@@ -32,7 +32,7 @@ func TestClient_ListDatasets(t *testing.T) {
 		if req.Variables["search"] != "ord" {
 			t.Errorf("search = %v", req.Variables["search"])
 		}
-		_, _ = w.Write([]byte(`{"data":{"datasets":{"total":3,"data":[{"id":"d1","name":"orders","description":"","visibility":"PRIVATE","createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-15T09:11:02Z"}]}}}`))
+		_, _ = w.Write([]byte(`{"data":{"datasets":{"total":3,"data":[{"id":"d1","name":"orders","description":"","createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-15T09:11:02Z"}]}}}`))
 	}))
 	defer server.Close()
 
@@ -54,7 +54,7 @@ func TestClient_GetDataset_IncludesVersions(t *testing.T) {
 		if !strings.Contains(req.Query, "versions(pagination: $pagination)") {
 			t.Errorf("query missing versions: %q", req.Query)
 		}
-		_, _ = w.Write([]byte(`{"data":{"dataset":{"id":"d1","name":"orders","description":"d","visibility":"PUBLIC","createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-15T09:11:02Z","versions":{"total":1,"data":[{"version":"1.0.0","status":"PUBLISHED","caseCount":12,"byteSize":345,"createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-15T09:11:02Z"}]}}}}`))
+		_, _ = w.Write([]byte(`{"data":{"dataset":{"id":"d1","name":"orders","description":"d","createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-15T09:11:02Z","versions":{"total":1,"data":[{"version":"1.0.0","status":"PUBLISHED","caseCount":12,"byteSize":345,"createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-15T09:11:02Z"}]}}}}`))
 	}))
 	defer server.Close()
 
@@ -76,7 +76,7 @@ func TestClient_CreateDataset_OmitsEmptyDescription(t *testing.T) {
 		if strings.Contains(req.Query, "$visibility") {
 			t.Errorf("createDataset mutation should not accept a visibility argument: %q", req.Query)
 		}
-		_, _ = w.Write([]byte(`{"data":{"createDataset":{"id":"d1","name":"orders","description":"","visibility":"PRIVATE","createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-12T10:23:45Z"}}}`))
+		_, _ = w.Write([]byte(`{"data":{"createDataset":{"id":"d1","name":"orders","description":"","createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-12T10:23:45Z"}}}`))
 	}))
 	defer server.Close()
 

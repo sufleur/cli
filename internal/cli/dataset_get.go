@@ -37,7 +37,6 @@ var datasetGetCmd = &cobra.Command{
 
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "@%s/%s\n", ref.Workspace, d.Name)
-		fmt.Fprintf(out, "visibility: %s\n", d.Visibility)
 		if d.Description != "" {
 			fmt.Fprintf(out, "description: %s\n", d.Description)
 		}

@@ -46,7 +46,7 @@ var datasetListCmd = &cobra.Command{
 		}
 		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		for _, d := range page.Data {
-			fmt.Fprintf(tw, "@%s/%s\t%s\t%s\n", workspace, d.Name, d.Visibility, d.UpdatedAt.Format(time.RFC3339))
+			fmt.Fprintf(tw, "@%s/%s\t%s\n", workspace, d.Name, d.UpdatedAt.Format(time.RFC3339))
 		}
 		_ = tw.Flush()
 		fmt.Fprintf(out, "\nShowing %d of %d.\n", len(page.Data), page.Total)

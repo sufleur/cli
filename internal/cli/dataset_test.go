@@ -61,7 +61,7 @@ func TestCasesUploadFilename(t *testing.T) {
 
 func TestWriteDatasetDump(t *testing.T) {
 	dir := t.TempDir()
-	d := &userapi.Dataset{Name: "orders", Description: "the orders", Visibility: "PUBLIC"}
+	d := &userapi.Dataset{Name: "orders", Description: "the orders"}
 	v := &userapi.DatasetVersion{Version: "1.0.0", Status: "PUBLISHED", CaseCount: 2, Schema: map[string]any{"type": "object"}}
 	cases := []byte("{\"id\":1}\n{\"id\":2}\n")
 
@@ -81,7 +81,7 @@ func TestWriteDatasetDump(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dataset.yaml: %v", err)
 	}
-	for _, want := range []string{"name: orders", "visibility: PUBLIC", "version: 1.0.0", "caseCount: 2"} {
+	for _, want := range []string{"name: orders", "version: 1.0.0", "caseCount: 2"} {
 		if !strings.Contains(string(meta), want) {
 			t.Errorf("dataset.yaml missing %q:\n%s", want, meta)
 		}
