@@ -12,6 +12,7 @@ Most codebases keep prompts as raw strings — hand-rolled interpolation, no ver
 ```ts
 // before
 const prompt = `You are a support triage engine. Classify this ticket:\n${text}`;
+const llmResponse = await callLLM(prompt);
 const triage = JSON.parse(llmResponse); // untyped, unvalidated 🤞
 ```
 
@@ -35,7 +36,7 @@ if (result.success) {
 }
 ```
 
-The generated file inlines everything — no SDK, no runtime fetches, nothing new to deploy.
+The generated file inlines everything — no vendor SDK, no runtime fetches. Its only runtime deps are `mustache` and `zod` (or `chevron` and `pydantic` for Python).
 
 ## Quickstart
 
@@ -47,7 +48,8 @@ npm i -g @sufleur/cli                # or: pip install sufleur-cli
 sufleur init                         # scaffold sufleur.yaml — accept the defaults
 sufleur add @sufleur/ticket-triage   # resolve, fetch, and lock the prompt
 sufleur generate                     # emit ./generated/prompts.ts (or .py)
-npm i mustache zod                   # runtime deps of the generated TypeScript
+npm i mustache zod                   # runtime deps of the generated file
+                                     # (Python: pip install chevron pydantic)
 ```
 
 `sufleur.yaml` declares what you depend on, `sufleur-lock.yaml` pins what you got, and the generated file is the only thing your code imports:
@@ -61,7 +63,7 @@ output:
   file: ./generated/prompts.ts
 ```
 
-That's it — the `getPrompt(...)` call above now works, with autocomplete on prompt names, entrypoints, and inputs. Browse more public prompts at <https://sufleur.com>.
+That's it — the `getPrompt(...)` call above now works, with autocomplete on prompt names, entrypoints, and inputs. Browse more public prompts at <https://sufleur.com/explore>.
 
 ## Install
 
