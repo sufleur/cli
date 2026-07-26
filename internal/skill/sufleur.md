@@ -123,7 +123,14 @@ Hello {{user.name}}{{@type string}}{{@doc Display name shown in the greeting}}!
 {{#verbose}}{{@type boolean}}{{@optional}}Include full detail.{{/verbose}}
 ```
 
-Valid types: `string`, `integer`, `number`, `boolean`, `object`, `array`; sections take `boolean`, `object`, or `array`. The directives render to empty strings, so they never leak into the prompt the model sees.
+Valid types: `string`, `integer`, `number`, `boolean`, `object`, `array` — all six work on sections too. A scalar type (`string`, `integer`, `number`) on a section makes it a **presence gate over an optional scalar**: the input infers as that scalar type and is automatically optional (no `{{@optional}}` needed), the body renders only when the value is present and truthy, and variables in the body resolve in the enclosing scope. Use it to wrap optional scalars whose surrounding text should disappear when they're omitted:
+
+```mustache
+{{#nickname}}{{@type string}}Nickname: {{nickname}}{{/nickname}}
+{{^nickname}}No nickname given.{{/nickname}}
+```
+
+The directives render to empty strings, so they never leak into the prompt the model sees.
 
 Before pushing a file, re-scan it: any `{{variable}}` or `{{#section}}` without a `{{@type ...}}` is unfinished work.
 
