@@ -17,7 +17,6 @@ var fileUpdateCmd = &cobra.Command{
 	Long:          "At least one of --file or --rename must be set. Either or both can be combined in a single call.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {

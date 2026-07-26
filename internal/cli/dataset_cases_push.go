@@ -18,7 +18,6 @@ when reading from stdin (--file -). On the first upload to a fresh draft the
 backend infers the schema and may suggest enums.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], true)
 		if err != nil {
@@ -69,7 +68,7 @@ backend infers the schema and may suggest enums.`,
 
 // casesUploadFilename picks the multipart filename whose extension drives the
 // backend's format detection. An explicit --format wins; otherwise a real path
-// keeps its own extension, and stdin defaults to jsonl.
+// keeps its own extension. Stdin requires an explicit --format.
 func casesUploadFilename(path, format string) (string, error) {
 	if format != "" {
 		f := strings.ToLower(strings.TrimSpace(format))
@@ -81,7 +80,7 @@ func casesUploadFilename(path, format string) (string, error) {
 		}
 	}
 	if path == "-" {
-		return "cases.jsonl", nil
+		return "", fmt.Errorf("--format is required when reading cases from stdin (jsonl|json|csv)")
 	}
 	return filepath.Base(path), nil
 }

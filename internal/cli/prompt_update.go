@@ -16,7 +16,6 @@ var promptUpdateCmd = &cobra.Command{
 	Long:          "Replaces the description on an existing prompt. Visibility changes are intentionally not exposed; perform those in the web UI.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.Parse(args[0])
 		if err != nil {

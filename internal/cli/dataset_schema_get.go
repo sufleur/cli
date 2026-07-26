@@ -14,7 +14,6 @@ var datasetSchemaGetCmd = &cobra.Command{
 	Long:          "Writes the version's JSON Schema (pretty-printed) to stdout, or to --file when given. Prints `{}` when no schema is set.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], true)
 		if err != nil {

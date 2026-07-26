@@ -16,7 +16,6 @@ var versionDeleteCmd = &cobra.Command{
 	Long:          "Removes a draft version. Published versions cannot be deleted; the backend returns an error if you try.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {

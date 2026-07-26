@@ -22,7 +22,6 @@ Pass --watch to block and stream progress until the run finishes; the exit code
 then reflects the verdict (usable as a CI gate).`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {

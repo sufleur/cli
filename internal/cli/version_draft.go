@@ -16,7 +16,6 @@ var versionDraftCmd = &cobra.Command{
 	Long:          "Forks the latest published version into a fresh draft. The new draft is returned with its assigned version label.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.Parse(args[0])
 		if err != nil {

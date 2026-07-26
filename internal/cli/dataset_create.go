@@ -12,7 +12,6 @@ var datasetCreateCmd = &cobra.Command{
 	Long:          "Creates a new dataset and its initial draft version. Names follow npm conventions (lowercase, 5–214 chars; letters, digits, '-', '_', '.'). Datasets are always workspace-scoped.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], false)
 		if err != nil {

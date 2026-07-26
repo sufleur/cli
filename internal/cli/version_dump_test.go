@@ -89,3 +89,46 @@ func TestWriteDump_NoModelConfigOmitsFile(t *testing.T) {
 		t.Errorf("model-config.yaml should not be written when ModelConfig is nil, stat err = %v", err)
 	}
 }
+
+func TestWriteDump_WritesAllExpectedFiles(t *testing.T) {
+	dir := t.TempDir()
+	v := &userapi.PromptVersion{
+		Version:  "1.0.0",
+		Files:    []userapi.PromptFile{{Name: "main", Content: "Hi"}, {Name: "helper", Content: "Help"}},
+		Readme:   "# README",
+		Metadata: map[string]any{},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"result": map[string]any{"type": "string"},
+			},
+		},
+		ModelConfig: &userapi.ModelConfig{
+			Provider:   "ANTHROPIC",
+			Model:      "claude-opus-4-1",
+			Parameters: map[string]any{"temperature": 0.7},
+		},
+	}
+
+	if err := writeDump(dir, v, "description: test"); err != nil {
+		t.Fatalf("writeDump: %v", err)
+	}
+
+	// Verify all expected files exist
+	expectedFiles := []string{
+		"files/main.mustache",
+		"files/helper.mustache",
+		"README.md",
+		"metadata.yaml",
+		"output-schema.json",
+		"model-config.yaml",
+		"eval.yaml",
+	}
+
+	for _, f := range expectedFiles {
+		path := filepath.Join(dir, f)
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected file %s to exist, got error: %v", f, err)
+		}
+	}
+}

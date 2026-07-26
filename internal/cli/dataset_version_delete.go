@@ -12,7 +12,6 @@ var datasetVersionDeleteCmd = &cobra.Command{
 	Long:          "Deletes a dataset version. The backend only allows deleting a draft, and only when it is the latest version.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], true)
 		if err != nil {

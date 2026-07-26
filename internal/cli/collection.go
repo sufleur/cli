@@ -16,7 +16,6 @@ var collectionCmd = &cobra.Command{
 	Short:         "Manage prompt collections (workspace-scoped)",
 	Long:          "Subcommands operate on collections, identified as @workspace/+name.",
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	Args:          cobra.NoArgs,
 	Run:           func(cmd *cobra.Command, _ []string) { _ = cmd.Help() },
 }

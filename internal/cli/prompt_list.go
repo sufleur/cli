@@ -16,7 +16,6 @@ var promptListCmd = &cobra.Command{
 	Short:         "List prompts in a workspace",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !strings.HasPrefix(args[0], "@") {
 			return fmt.Errorf("workspace reference %q must start with @ (e.g. @acme)", args[0])

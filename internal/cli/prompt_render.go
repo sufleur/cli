@@ -11,8 +11,8 @@ import (
 )
 
 var promptRenderCmd = &cobra.Command{
-	Use:           "render <dir> --entrypoint NAME [--vars '{...}' | --vars-file PATH]",
-	Short:         "Render a local prompt directory with Mustache",
+	Use:   "render <dir> --entrypoint NAME [--vars '{...}' | --vars-file PATH]",
+	Short: "Render a local prompt directory with Mustache",
 	Long: `Reads a dump-style directory and renders one of its entrypoints.
 
 The directory must contain a "files/" subdirectory of .mustache templates;
@@ -24,7 +24,6 @@ matching the codegen-time behaviour.
 Pass neither to render with an empty variable scope.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dir := args[0]
 		entrypoint, _ := cmd.Flags().GetString("entrypoint")

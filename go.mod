@@ -3,6 +3,7 @@ module github.com/sufleur/cli
 go 1.23.2
 
 require (
+	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/cbroglie/mustache v1.4.0
 	github.com/hasura/go-graphql-client v0.15.1
 	github.com/joho/godotenv v1.5.1

@@ -917,8 +917,8 @@ func TestOutputSchema_SinglePrompt(t *testing.T) {
 	assertContains(t, output, "_output_models")
 	assertContains(t, output, `"@test/structured-output": TestStructuredOutputOutput`)
 
-	// metadata output_schema
-	assertContains(t, output, `"output_schema": json.loads(`)
+	// metadata outputSchema — camelCase to match the TS generator's key
+	assertContains(t, output, `"outputSchema": json.loads(`)
 
 	// typing imports include Optional, Union
 	assertContains(t, output, "Optional, Union")
@@ -998,12 +998,12 @@ func TestOutputSchema_MixedPrompts(t *testing.T) {
 	assertContains(t, outputModelsSection, `"@test/with-schema": TestWithSchemaOutput`)
 	assertNotContains(t, outputModelsSection, `"@test/without-schema"`)
 
-	// Only with-schema prompt has output_schema in metadata
+	// Only with-schema prompt has outputSchema in metadata
 	metadataSection := extractSection(output, "_metadata:", "}")
 	withSchemaSection := extractSection(metadataSection, `"@test/with-schema"`, "},")
-	assertContains(t, withSchemaSection, "output_schema")
+	assertContains(t, withSchemaSection, "outputSchema")
 	withoutSchemaSection := extractSection(metadataSection, `"@test/without-schema"`, "},")
-	assertNotContains(t, withoutSchemaSection, "output_schema")
+	assertNotContains(t, withoutSchemaSection, "outputSchema")
 
 	// Only with-schema result class has parse_output
 	withSchemaResult := extractSection(output, "class _TestWithSchemaResult:", "class _TestWithoutSchemaResult:")

@@ -12,7 +12,6 @@ var datasetVersionGetCmd = &cobra.Command{
 	Long:          "Resolves a version by semver constraint or the literal \"draft\" and prints its status, case count, whether it has a schema, and its live validation report.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], true)
 		if err != nil {

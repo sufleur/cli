@@ -15,7 +15,6 @@ var collectionCreateCmd = &cobra.Command{
 	Long:          "Creates a new (private) collection. Use `collection link` to add prompts and `collection set-readme`/`set-description` to document it.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseCollectionRef(args[0])
 		if err != nil {

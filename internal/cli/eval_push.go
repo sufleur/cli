@@ -19,7 +19,6 @@ save (the eval is stored, but won't run cleanly until they are resolved). Run
 ` + "`sufleur eval validate`" + ` first to preview diagnostics without saving.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {

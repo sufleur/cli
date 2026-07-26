@@ -37,8 +37,9 @@ func TestCasesUploadFilename(t *testing.T) {
 		wantErr            bool
 	}{
 		{"data/cases.csv", "", "cases.csv", false},
-		{"-", "", "cases.jsonl", false},
+		{"-", "", "", true},
 		{"-", "csv", "cases.csv", false},
+		{"-", "jsonl", "cases.jsonl", false},
 		{"whatever.txt", "json", "cases.json", false},
 		{"-", "yaml", "", true},
 	}

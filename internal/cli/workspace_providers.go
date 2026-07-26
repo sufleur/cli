@@ -26,7 +26,6 @@ Configuring provider credentials is done in the web UI — the CLI can only list
 them.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ws, err := parseWorkspaceArg(args[0])
 		if err != nil {

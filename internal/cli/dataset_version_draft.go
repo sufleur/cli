@@ -12,7 +12,6 @@ var datasetVersionDraftCmd = &cobra.Command{
 	Long:          "Creates a new draft version, carrying forward the schema and cases of the latest published version. Fails if a draft already exists.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], false)
 		if err != nil {

@@ -15,7 +15,6 @@ var collectionGetCmd = &cobra.Command{
 	Short:         "Show details for a collection (including its README)",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseCollectionRef(args[0])
 		if err != nil {

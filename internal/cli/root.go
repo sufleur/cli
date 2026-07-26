@@ -17,6 +17,15 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Load .env file if present (ignore error if missing)
 		_ = godotenv.Load()
+
+		// By the time PersistentPreRunE runs, cobra has already parsed flags
+		// and validated the argument count/shape for the matched command, so
+		// any error returned from here on out is a runtime failure (network,
+		// GraphQL, business-rule) rather than a usage mistake. Flipping
+		// SilenceUsage here — instead of hardcoding it on every command —
+		// keeps cobra's own usage dump for genuine mistakes (unknown flags,
+		// wrong arg count), which are rejected before this hook runs.
+		cmd.SilenceUsage = true
 		return nil
 	},
 }

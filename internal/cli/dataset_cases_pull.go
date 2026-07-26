@@ -15,7 +15,6 @@ var datasetCasesPullCmd = &cobra.Command{
 stdout when --to is omitted or "-". A version with no cases yields empty output.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], true)
 		if err != nil {

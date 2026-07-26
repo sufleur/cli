@@ -18,7 +18,6 @@ var versionSetOutputSchemaCmd = &cobra.Command{
 	Long:          "Reads a JSON object from --file and stores it as the version's output schema. Pass an empty JSON object `{}` to clear constraints without removing the schema.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {
@@ -37,7 +36,15 @@ var versionSetOutputSchemaCmd = &cobra.Command{
 		}
 		var schema map[string]any
 		if err := json.Unmarshal(raw, &schema); err != nil {
-			return fmt.Errorf("parsing %s as JSON object: %w", path, err)
+			var typeErr *json.UnmarshalTypeError
+			if errors.As(err, &typeErr) {
+				// The JSON parsed fine but isn't an object (e.g. an array,
+				// string, or number) — say so plainly instead of leaking Go's
+				// "cannot unmarshal ... into Go value of type
+				// map[string]interface {}" wording.
+				return fmt.Errorf("%s must be a JSON object (got a JSON %s)", path, typeErr.Value)
+			}
+			return fmt.Errorf("parsing %s as JSON: %w", path, err)
 		}
 
 		client, _, err := loadUserAPIClient(cmd)

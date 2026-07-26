@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sufleur/cli/internal/config"
 	"github.com/sufleur/cli/internal/resolver"
 )
 
@@ -23,6 +24,16 @@ var updateCmd = &cobra.Command{
 		}
 
 		if len(args) == 1 {
+			// Fail loudly on a name that isn't in sufleur.yaml — mirrors
+			// `remove`'s check — rather than silently falling through to a
+			// full re-resolve of every prompt.
+			cfg, err := config.Load(opts.ConfigPath)
+			if err != nil {
+				return err
+			}
+			if _, exists := cfg.Raw.Prompts[args[0]]; !exists {
+				return fmt.Errorf("prompt %s not found in sufleur.yaml", args[0])
+			}
 			opts.UpdateOnly = []string{args[0]}
 		} else {
 			opts.ForceAll = true

@@ -16,7 +16,6 @@ var fileSetEntrypointCmd = &cobra.Command{
 	Long:          "By default sets the file as an entrypoint. Pass --clear to unset. The backend allows multiple entrypoints per version, so clearing one does not affect the others.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {

@@ -19,7 +19,6 @@ var evalCmd = &cobra.Command{
 	Short:         "Manage and run prompt evals",
 	Long:          "Subcommands manage the eval attached to a prompt version (@workspace/name@version) and trigger or inspect eval runs.",
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	Args:          cobra.NoArgs,
 	Run:           func(cmd *cobra.Command, _ []string) { _ = cmd.Help() },
 }

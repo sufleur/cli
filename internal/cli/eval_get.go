@@ -21,7 +21,6 @@ Pass --file PATH to write the YAML to a file instead of stdout. Use --json to
 get a structured {version, yaml} object.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {

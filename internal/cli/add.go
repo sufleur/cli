@@ -2,10 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
+	semver "github.com/Masterminds/semver/v3"
 	"github.com/spf13/cobra"
 
 	"github.com/sufleur/cli/internal/config"
@@ -41,6 +43,13 @@ reported as skipped; pass --force to reset them to "*".`,
 		constraint := "*"
 		if len(args) == 2 {
 			constraint = args[1]
+		}
+
+		// Pre-validate the constraint locally before any network round-trip.
+		// The backend rejects a malformed constraint too, but only after a
+		// GraphQL call, and with a raw error dump.
+		if err := validateConstraint(constraint); err != nil {
+			return err
 		}
 
 		// Compute the alias key. With --alias, the new entry lives under
@@ -88,12 +97,25 @@ reported as skipped; pass --force to reset them to "*".`,
 		}
 
 		if aliasKey == ref.Raw {
+			fmt.Printf("Resolving %s (%s)...\n", aliasKey, constraint)
+		} else {
+			fmt.Printf("Resolving %s (alias for %s @ %s)...\n", aliasKey, ref.Raw, constraint)
+		}
+
+		if err := resolveOrRollback(cmd.Context(), verbose, original); err != nil {
+			return err
+		}
+
+		// Only reported once resolution has actually succeeded — printing
+		// this beforehand contradicted the "left unchanged" rollback message
+		// on failure.
+		if aliasKey == ref.Raw {
 			fmt.Printf("Added %s (%s) to sufleur.yaml\n", aliasKey, constraint)
 		} else {
 			fmt.Printf("Added %s (alias for %s @ %s) to sufleur.yaml\n", aliasKey, ref.Raw, constraint)
 		}
 
-		return resolveOrRollback(cmd.Context(), verbose, original)
+		return nil
 	},
 }
 
@@ -165,7 +187,34 @@ func runCollectionAdd(cmd *cobra.Command, ref promptref.PromptRef, args []string
 		fmt.Printf("  = %s (already present, skipped)\n", k)
 	}
 
-	return resolveOrRollback(cmd.Context(), verbose, original)
+	if err := resolveOrRollback(cmd.Context(), verbose, original); err != nil {
+		return improveCollectionResolveError(err, ref.Workspace, names)
+	}
+	return nil
+}
+
+// improveCollectionResolveError rewrites a resolver failure caused by a
+// collection member having no published version into an honest, actionable
+// message. members comes from ListCollectionPrompts, which only returns
+// prompt names the backend has already confirmed exist — so if
+// FetchPromptVersion later reports no version matching the constraint for
+// one of them, that can only mean the prompt has no published version (it
+// may be draft-only), never that the prompt doesn't exist. Errors unrelated
+// to this case, or for names outside this collection, pass through
+// unchanged.
+func improveCollectionResolveError(err error, workspace string, members []string) error {
+	var noVersion *fetcher.NoPublishedVersionError
+	if !errors.As(err, &noVersion) {
+		return err
+	}
+	for _, m := range members {
+		if m == noVersion.PromptName {
+			return fmt.Errorf(
+				"@%s/%s has no published version (draft-only) — publish it or remove it from the collection\nsufleur.yaml was left unchanged",
+				workspace, m)
+		}
+	}
+	return err
 }
 
 // clientForWorkspace builds a fetcher client for a workspace. A workspace
@@ -231,6 +280,22 @@ func resolveAndReport(ctx context.Context, verbose bool) error {
 	}
 
 	fmt.Printf("\nResolved %d prompt(s).\n", len(result.Entries))
+	return nil
+}
+
+// validateConstraint checks a user-supplied version constraint locally,
+// before any network round-trip: constraint matching itself still happens
+// server-side, but a malformed constraint (typo'd operator, garbage string)
+// can be rejected immediately with a friendly message instead of a raw
+// GraphQL error dump. "draft" is the CLI's own sentinel for "the latest
+// draft version" — not a semver constraint — so it is exempt.
+func validateConstraint(constraint string) error {
+	if constraint == "draft" {
+		return nil
+	}
+	if _, err := semver.NewConstraint(constraint); err != nil {
+		return fmt.Errorf("invalid version constraint %q: %s", constraint, err)
+	}
 	return nil
 }
 

@@ -9,7 +9,6 @@ var promptCmd = &cobra.Command{
 	Short:         "Manage prompts (workspace-scoped)",
 	Long:          "Subcommands operate on prompts identified as @workspace/name.",
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	Args:          cobra.NoArgs,
 	Run:           func(cmd *cobra.Command, _ []string) { _ = cmd.Help() },
 }
@@ -21,7 +20,6 @@ var versionCmd = &cobra.Command{
 	Short:         "Manage prompt versions",
 	Long:          "Subcommands operate on versions of a prompt, identified as @workspace/name@version.",
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	Args:          cobra.NoArgs,
 	Run:           func(cmd *cobra.Command, _ []string) { _ = cmd.Help() },
 }
@@ -33,7 +31,6 @@ var fileCmd = &cobra.Command{
 	Short:         "Manage files within a draft prompt version",
 	Long:          "Subcommands operate on files inside a draft version, identified as @workspace/name@version with a file-name argument.",
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	Args:          cobra.NoArgs,
 	Run:           func(cmd *cobra.Command, _ []string) { _ = cmd.Help() },
 }

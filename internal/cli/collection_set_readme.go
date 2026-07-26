@@ -22,7 +22,6 @@ The edit is applied immediately (collections have no draft workflow). The
 backend enforces a length limit, which surfaces as an error.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseCollectionRef(args[0])
 		if err != nil {

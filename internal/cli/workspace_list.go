@@ -16,7 +16,6 @@ var workspaceListCmd = &cobra.Command{
 	Short:         "List the workspaces you belong to",
 	Args:          cobra.NoArgs,
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, _, err := loadUserAPIClient(cmd)
 		if err != nil {

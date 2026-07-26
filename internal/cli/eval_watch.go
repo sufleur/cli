@@ -22,7 +22,6 @@ Exit code reflects the outcome (usable as a CI gate): 0 when the run passed
 errored, or the watch timed out.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, _, err := loadUserAPIClient(cmd)
 		if err != nil {

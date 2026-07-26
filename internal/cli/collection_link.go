@@ -20,7 +20,6 @@ in a different collection moves it out of that one. To avoid surprises this is
 refused unless you pass --force.`,
 	Args:          cobra.ExactArgs(2),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		collectionRef, err := parseCollectionRef(args[0])
 		if err != nil {
