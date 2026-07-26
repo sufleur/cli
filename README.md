@@ -5,6 +5,64 @@ Native Go CLI for [**Sufleur**](https://sufleur.com) — the registry where you 
 1. **Install published prompts into your project** the way `npm` / `pip` installs packages — declared in `sufleur.yaml`, locked to `sufleur-lock.yaml`, generated into a single typed file.
 2. **Author prompts from the CLI** — full CRUD over workspace prompts, versions, files, and metadata. Designed so a coding agent (Claude Code, Cursor, etc.) can drive the authoring loop on your behalf.
 
+## The payoff
+
+Most codebases keep prompts as raw strings — hand-rolled interpolation, no versioning, and `JSON.parse` + finger-crossing on the model's output:
+
+```ts
+// before
+const prompt = `You are a support triage engine. Classify this ticket:\n${text}`;
+const triage = JSON.parse(llmResponse); // untyped, unvalidated 🤞
+```
+
+Sufleur turns a published prompt into a typed function in your own repo:
+
+```ts
+// after — everything below is generated code, autocomplete included
+import { getPrompt } from './generated/prompts';
+
+const triage = getPrompt('@sufleur/ticket-triage');
+
+const user = triage.render('userPrompt', {
+  text: 'Checkout has been down for an hour and we are losing orders!',
+}); // input shape is typed from the template's variables
+
+// …send user.prompt to any LLM SDK, then validate the response:
+const result = triage.parseOutput(llmText); // zod-validated against the prompt's output schema
+if (result.success) {
+  result.data.priority; // 'urgent' | 'high' | 'medium' | 'low'
+  result.data.category; // 'bug' | 'billing' | … | 'outage' | 'other'
+}
+```
+
+The generated file inlines everything — no SDK, no runtime fetches, nothing new to deploy.
+
+## Quickstart
+
+Zero to that typed call in under five minutes. Public prompts need no account or API key:
+
+```bash
+npm i -g @sufleur/cli                # or: pip install sufleur-cli
+
+sufleur init                         # scaffold sufleur.yaml — accept the defaults
+sufleur add @sufleur/ticket-triage   # resolve, fetch, and lock the prompt
+sufleur generate                     # emit ./generated/prompts.ts (or .py)
+npm i mustache zod                   # runtime deps of the generated TypeScript
+```
+
+`sufleur.yaml` declares what you depend on, `sufleur-lock.yaml` pins what you got, and the generated file is the only thing your code imports:
+
+```yaml
+# sufleur.yaml
+prompts:
+  "@sufleur/ticket-triage": "*"
+output:
+  language: typescript
+  file: ./generated/prompts.ts
+```
+
+That's it — the `getPrompt(...)` call above now works, with autocomplete on prompt names, entrypoints, and inputs. Browse more public prompts at <https://sufleur.com>.
+
 ## Install
 
 Two prebuilt wrappers ship the same binary — pick the one that matches your project:
