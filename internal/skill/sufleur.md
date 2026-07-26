@@ -109,6 +109,31 @@ Produces:
 
 Use whatever file tools you already have. The `.mustache` files are plain text; `metadata.yaml` is flat scalar key→value (types inferred from YAML scalars); `output-schema.json` is a JSON Schema object; `model-config.yaml` (when present) has `provider`/`model`/`parameters` keys, `provider` lowercase.
 
+#### Annotate every input — part of writing the template, not a follow-up
+
+Sufleur infers each file's **input schema** from its template, and generated client code is only as typed as the template's annotations: a bare `{{variable}}` comes out as `unknown` in generated TypeScript and `Any` in generated Python. Annotate every input **as you write it**, by default, without being asked.
+
+Every variable gets a `{{@type ...}}` immediately after it; every section opens with one. Add `{{@doc ...}}` when the name alone doesn't tell a developer what to pass, and `{{@optional}}` when the input may be omitted (inputs default to required).
+
+```mustache
+Hello {{user.name}}{{@type string}}{{@doc Display name shown in the greeting}}!
+{{#topics}}{{@type array}}{{@doc Topics to cover in the summary}}
+- {{.}}{{@type string}}
+{{/topics}}
+{{#verbose}}{{@type boolean}}{{@optional}}Include full detail.{{/verbose}}
+```
+
+Valid types: `string`, `integer`, `number`, `boolean`, `object`, `array` — all six work on sections too. A scalar type (`string`, `integer`, `number`) on a section makes it a **presence gate over an optional scalar**: the input infers as that scalar type and is automatically optional (no `{{@optional}}` needed), the body renders only when the value is present and truthy, and variables in the body resolve in the enclosing scope. Use it to wrap optional scalars whose surrounding text should disappear when they're omitted:
+
+```mustache
+{{#nickname}}{{@type string}}Nickname: {{nickname}}{{/nickname}}
+{{^nickname}}No nickname given.{{/nickname}}
+```
+
+The directives render to empty strings, so they never leak into the prompt the model sees.
+
+Before pushing a file, re-scan it: any `{{variable}}` or `{{#section}}` without a `{{@type ...}}` is unfinished work.
+
 ### 3. Render to verify
 
 ```bash
@@ -120,7 +145,7 @@ Notes:
 * `--entrypoint` is **required** and names the file in `./working/files/` (the `.mustache` suffix is accepted but optional).
 * `--vars` is an inline JSON object; use `--vars-file ./vars.json` for larger inputs.
 * `{{@outputSchema}}` is substituted with the local `output-schema.json` (pretty-printed) before rendering, matching the codegen-time behaviour.
-* `{{@type ...}}`, `{{@doc ...}}`, and `{{@optional}}` directives render to empty strings — they exist as platform metadata (consumed by schema inference), not output. Place them next to the variable they describe: `{{@type string}}` annotates the type, `{{@doc ...}}` adds a description, and `{{@optional}}` marks the preceding input property as optional (omitted properties default to required). Important: `{{@doc ...}}` is **only** carried into generated code as a JSDoc comment / Python docstring on the corresponding input field — it does **not** become part of the rendered prompt the LLM sees. If you want the model itself to read guidance about a variable, write that guidance into the prompt template directly; `{{@doc ...}}` is for downstream developer ergonomics only.
+* `{{@type ...}}`, `{{@doc ...}}`, and `{{@optional}}` directives render to empty strings — they are platform metadata (consumed by schema inference), not output; see "Annotate every input" above for how to write them. Important: `{{@doc ...}}` is **only** carried into generated code as a JSDoc comment / Python docstring on the corresponding input field — it does **not** become part of the rendered prompt the LLM sees. If you want the model itself to read guidance about a variable, write that guidance into the prompt template directly; `{{@doc ...}}` is for downstream developer ergonomics only.
 
 ### 4. Push changes back
 
