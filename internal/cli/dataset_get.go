@@ -13,7 +13,6 @@ var datasetGetCmd = &cobra.Command{
 	Short:         "Show a dataset and its versions",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], false)
 		if err != nil {

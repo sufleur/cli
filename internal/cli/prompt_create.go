@@ -15,7 +15,6 @@ var promptCreateCmd = &cobra.Command{
 	Short:         "Create a new prompt",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.Parse(args[0])
 		if err != nil {

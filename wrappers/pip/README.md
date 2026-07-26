@@ -62,7 +62,7 @@ The generated code targets **Python 3.10+** (PEP 604 union syntax).
 A single `.py` module containing every prompt inlined (no runtime fetches). The public API is `get_prompt(name)`, which returns a result object with:
 
 - **`render(entrypoint, input)` → `{"prompt": str}`** — Chevron renders the entrypoint template against `input`. The signature is narrowed via `@overload` per entrypoint, so type checkers reject the wrong input shape.
-- **`metadata`** — a `TypedDict` containing `version`, your workspace's custom metadata, and (when applicable) `output_schema`.
+- **`metadata`** — a `TypedDict` containing `version`, your workspace's custom metadata, and (when applicable) `outputSchema`.
 - **`parse_output(raw)`** *(only present if the prompt has an output schema)* — strips ``` fences, JSON-parses, and validates with a Pydantic model generated from the prompt's JSON Schema. Returns `{"success": True, "data": <Model>}` or `{"success": False, "error": str}`.
 
 Plus generated `TypedDict`s per entrypoint, with field docstrings for any schema property that has a `description`:

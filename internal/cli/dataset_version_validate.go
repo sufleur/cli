@@ -16,7 +16,6 @@ hard-gated on this passing, so run it before you publish.
 Exits non-zero when there is at least one violation.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], true)
 		if err != nil {

@@ -17,8 +17,8 @@ import (
 )
 
 var versionSetMetadataCmd = &cobra.Command{
-	Use:           "set-metadata @workspace/name@version",
-	Short:         "Set or sync metadata keys on a version",
+	Use:   "set-metadata @workspace/name@version",
+	Short: "Set or sync metadata keys on a version",
 	Long: `Two modes:
 
 Flag mode (additive patch): pass one or more of
@@ -36,7 +36,6 @@ on the version but absent from the file are deleted.
 The two modes are mutually exclusive.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {

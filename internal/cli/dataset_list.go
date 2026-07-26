@@ -14,7 +14,6 @@ var datasetListCmd = &cobra.Command{
 	Long:          "Lists datasets in a workspace. Use --search to filter by name or description.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		workspace, err := parseWorkspaceRef(args[0])
 		if err != nil {

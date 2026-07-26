@@ -208,6 +208,48 @@ func TestEntrypointWithoutInput(t *testing.T) {
 	// No input interface — entrypoint maps to Record<string, never>
 	assertNotContains(t, output, "TestNoInput_UserPromptInput")
 	assertContains(t, output, "'userPrompt': Record<string, never>;")
+
+	// The banner comment must attribute `never` to the genuinely-absent-schema
+	// case (see TestEmptyObjectInputSchemaMapsToUnknown for the other half).
+	assertContains(t, output, "entrypoints with no input schema at all accept `Record<string, never>`")
+}
+
+// TestEmptyObjectInputSchemaMapsToUnknown guards the EntrypointMapping banner
+// comment against a mismatch with what the generator actually emits. The
+// backend always sets a non-nil InputSchema on entrypoints — even ones with
+// no template variables — as an empty `{"type": "object"}` schema (see
+// fetcher/client_test.go). objectToTS's no-properties fallback renders that
+// as `Record<string, unknown>`, not the `Record<string, never>` literal that
+// only fires when InputSchema is genuinely absent (HasInput == false). The
+// banner text must describe the case that actually occurs in practice: an
+// empty *object schema* maps to `unknown`, while a *missing* schema entirely
+// maps to `never` (see TestEntrypointWithoutInput for that other half).
+func TestEmptyObjectInputSchemaMapsToUnknown(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:     "@test/empty-schema",
+			Name:    "empty-schema",
+			Version: "1.0.0",
+			Status:  "PUBLISHED",
+			Files: []generator.PromptFile{
+				{
+					Name:         "userPrompt",
+					Content:      "Hi there",
+					IsEntrypoint: true,
+					InputSchema:  map[string]interface{}{"type": "object"},
+				},
+			},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	assertContains(t, output, "export type TestEmptySchema_UserPromptInput = Record<string, unknown>;")
+	assertContains(t, output, "'userPrompt': TestEmptySchema_UserPromptInput;")
+
+	// The banner comment must attribute `unknown` to the empty-object-schema
+	// case specifically, not blanket "no input schema" (that was the bug).
+	assertContains(t, output, "Entrypoints with an empty object schema accept `Record<string, unknown>`")
 }
 
 func TestCustomEntrypointName(t *testing.T) {
@@ -445,6 +487,146 @@ func TestJSDocAnnotations(t *testing.T) {
 
 	assertContains(t, output, "* A well documented prompt")
 	assertContains(t, output, "@version 3.0.0")
+}
+
+// TestJSDocOnGetPromptOverloads guards against a regression where every
+// prompt's JSDoc block (description + @version) was emitted as a duplicated
+// stack floating above the single generic `getPrompt` function, attached to
+// nothing in particular — a TS language-service check showed the doc never
+// surfaced at `getPrompt("name")` call sites because it was lost through the
+// generic function boundary. Each prompt now gets its own `getPrompt`
+// *overload* signature carrying that prompt's doc directly above it, with
+// the generic implementation signature last and undocumented (TS resolves
+// hover/completions for a literal argument against the matching overload,
+// not the implementation signature).
+func TestJSDocOnGetPromptOverloads(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:         "@test/prompt-a",
+			Name:        "prompt-a",
+			Version:     "1.0.0",
+			Description: "First prompt description",
+			Status:      "PUBLISHED",
+			Files:       []generator.PromptFile{{Name: "userPrompt", Content: "A", IsEntrypoint: true}},
+		},
+		{
+			Ref:         "@test/prompt-b",
+			Name:        "prompt-b",
+			Version:     "2.0.0",
+			Description: "Second prompt description",
+			Status:      "PUBLISHED",
+			Files:       []generator.PromptFile{{Name: "userPrompt", Content: "B", IsEntrypoint: true}},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	implSig := "export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> {"
+	overloadA := "export function getPrompt(promptName: '@test/prompt-a'): PromptResult<'@test/prompt-a'>;"
+	overloadB := "export function getPrompt(promptName: '@test/prompt-b'): PromptResult<'@test/prompt-b'>;"
+
+	assertContains(t, output, overloadA)
+	assertContains(t, output, overloadB)
+	assertContains(t, output, implSig)
+
+	aDocIdx := strings.Index(output, "First prompt description")
+	aOverloadIdx := strings.Index(output, overloadA)
+	bDocIdx := strings.Index(output, "Second prompt description")
+	bOverloadIdx := strings.Index(output, overloadB)
+	implIdx := strings.Index(output, implSig)
+
+	if aDocIdx == -1 || aOverloadIdx == -1 || bDocIdx == -1 || bOverloadIdx == -1 || implIdx == -1 {
+		t.Fatalf("expected docs, overloads, and implementation all present:\n%s", output)
+	}
+	// Each doc immediately precedes its own overload, overloads stay in
+	// prompt order, and the generic implementation comes last of all.
+	if !(aDocIdx < aOverloadIdx && aOverloadIdx < bDocIdx && bDocIdx < bOverloadIdx && bOverloadIdx < implIdx) {
+		t.Errorf("expected order aDoc(%d) < aOverload(%d) < bDoc(%d) < bOverload(%d) < impl(%d):\n%s",
+			aDocIdx, aOverloadIdx, bDocIdx, bOverloadIdx, implIdx, output)
+	}
+	assertContains(t, output, "@version 1.0.0")
+	assertContains(t, output, "@version 2.0.0")
+
+	// One overload per prompt — exactly two "getPrompt(promptName: '...')"
+	// non-generic signatures, not a third stray copy.
+	if got := strings.Count(output, "export function getPrompt(promptName: '"); got != 2 {
+		t.Errorf("expected exactly 2 getPrompt overloads, got %d:\n%s", got, output)
+	}
+
+	// No orphan JSDoc stack sitting directly above the generic implementation
+	// signature beyond the overloads themselves — the regression this test
+	// guards against was every doc block piling up right above `impl`, not
+	// attached to any signature at all.
+	betweenLastOverloadAndImpl := output[bOverloadIdx+len(overloadB) : implIdx]
+	assertNotContains(t, betweenLastOverloadAndImpl, "/**")
+
+	// The `_metadata` entries themselves carry no doc now (docs live solely
+	// on the overloads to avoid a duplicated-stack regression reappearing).
+	metadataSection := extractSection(output, "export const _metadata", "} as const;")
+	assertNotContains(t, metadataSection, "/**")
+}
+
+// TestGenericOverloadRestoresDynamicCallability guards against a regression
+// where per-prompt literal overloads were emitted directly above the
+// generic implementation with no trailing *generic* overload signature in
+// between. In TypeScript, once any overload signatures are declared, the
+// implementation signature itself is no longer externally callable — only
+// the declared overloads are. Without a final `getPrompt<N extends
+// PromptName>(promptName: N): PromptResult<N>;` overload, a caller holding a
+// dynamic `PromptName` (e.g. a variable produced by iterating prompt names,
+// not a literal) fails overload resolution ("No overload matches this
+// call"). The fix adds that generic overload after the per-prompt literal
+// overloads and before the implementation — TS still prefers the more
+// specific literal overload when the argument is itself a literal, so
+// per-prompt hover docs are unaffected.
+func TestGenericOverloadRestoresDynamicCallability(t *testing.T) {
+	prompts := []generator.PromptData{
+		{
+			Ref:         "@test/prompt-a",
+			Name:        "prompt-a",
+			Version:     "1.0.0",
+			Description: "First prompt description",
+			Status:      "PUBLISHED",
+			Files:       []generator.PromptFile{{Name: "userPrompt", Content: "A", IsEntrypoint: true}},
+		},
+		{
+			Ref:         "@test/prompt-b",
+			Name:        "prompt-b",
+			Version:     "2.0.0",
+			Description: "Second prompt description",
+			Status:      "PUBLISHED",
+			Files:       []generator.PromptFile{{Name: "userPrompt", Content: "B", IsEntrypoint: true}},
+		},
+	}
+
+	output := generateAndRead(t, prompts)
+
+	overloadA := "export function getPrompt(promptName: '@test/prompt-a'): PromptResult<'@test/prompt-a'>;"
+	overloadB := "export function getPrompt(promptName: '@test/prompt-b'): PromptResult<'@test/prompt-b'>;"
+	genericOverload := "export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N>;"
+	implSig := "export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> {"
+
+	assertContains(t, output, genericOverload)
+
+	aOverloadIdx := strings.Index(output, overloadA)
+	bOverloadIdx := strings.Index(output, overloadB)
+	genericIdx := strings.Index(output, genericOverload)
+	implIdx := strings.Index(output, implSig)
+
+	if aOverloadIdx == -1 || bOverloadIdx == -1 || genericIdx == -1 || implIdx == -1 {
+		t.Fatalf("expected per-prompt overloads, generic overload, and implementation all present:\n%s", output)
+	}
+	// The generic overload must come after every per-prompt overload and
+	// strictly before the implementation signature.
+	if !(aOverloadIdx < genericIdx && bOverloadIdx < genericIdx && genericIdx < implIdx) {
+		t.Errorf("expected per-prompt overloads(a=%d,b=%d) < genericOverload(%d) < impl(%d):\n%s",
+			aOverloadIdx, bOverloadIdx, genericIdx, implIdx, output)
+	}
+	// Exactly one generic overload signature (declaration, no body) — not
+	// duplicated, and distinct from the implementation signature itself.
+	if got := strings.Count(output, genericOverload); got != 1 {
+		t.Errorf("expected exactly 1 generic overload signature, got %d:\n%s", got, output)
+	}
 }
 
 func TestFieldDescriptions(t *testing.T) {

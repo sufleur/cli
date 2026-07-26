@@ -14,7 +14,6 @@ var datasetVersionListCmd = &cobra.Command{
 	Short:         "List versions of a dataset",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], false)
 		if err != nil {

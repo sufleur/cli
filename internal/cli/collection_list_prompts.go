@@ -15,7 +15,6 @@ var collectionListPromptsCmd = &cobra.Command{
 	Long:          "Lists the prompts in a collection, one @workspace/name per line. Feed each into `sufleur version dump` or `sufleur add` to work with it.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseCollectionRef(args[0])
 		if err != nil {

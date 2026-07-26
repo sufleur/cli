@@ -10,7 +10,6 @@ var evalShowCmd = &cobra.Command{
 	Long:          "Fetches a single eval run by id and prints a summary (status, verdict, score, timing). Use --json for the full structured run.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, _, err := loadUserAPIClient(cmd)
 		if err != nil {

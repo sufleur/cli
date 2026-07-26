@@ -13,8 +13,8 @@ import (
 )
 
 var versionSetReadmeCmd = &cobra.Command{
-	Use:           "set-readme @workspace/name@version [--content STR | --file PATH]",
-	Short:         "Replace the README of a draft version",
+	Use:   "set-readme @workspace/name@version [--content STR | --file PATH]",
+	Short: "Replace the README of a draft version",
 	Long: `Sets the README markdown on a draft version. Provide exactly one of:
 
   --content STR    use the string verbatim
@@ -26,7 +26,6 @@ backend rejects writes to published versions and enforces a length limit;
 both surface as errors.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {

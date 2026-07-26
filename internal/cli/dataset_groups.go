@@ -20,7 +20,6 @@ var datasetCmd = &cobra.Command{
 	Short:         "Manage datasets (workspace-scoped)",
 	Long:          "Subcommands operate on datasets identified as @workspace/name, and their versions, schema, and cases.",
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	Args:          cobra.NoArgs,
 	Run:           func(cmd *cobra.Command, _ []string) { _ = cmd.Help() },
 }
@@ -31,7 +30,6 @@ var datasetVersionCmd = &cobra.Command{
 	Short:         "Manage dataset versions (draft → publish)",
 	Long:          "Subcommands operate on versions of a dataset, identified as @workspace/name@version.",
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	Args:          cobra.NoArgs,
 	Run:           func(cmd *cobra.Command, _ []string) { _ = cmd.Help() },
 }
@@ -42,7 +40,6 @@ var datasetSchemaCmd = &cobra.Command{
 	Short:         "Read and write a dataset version's JSON Schema",
 	Long:          "Subcommands read or replace the JSON Schema of a dataset version, identified as @workspace/name@version.",
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	Args:          cobra.NoArgs,
 	Run:           func(cmd *cobra.Command, _ []string) { _ = cmd.Help() },
 }
@@ -53,7 +50,6 @@ var datasetCasesCmd = &cobra.Command{
 	Short:         "Upload and download a dataset version's cases",
 	Long:          "Subcommands push (JSONL/JSON/CSV) or pull (JSONL) the cases of a dataset version, identified as @workspace/name@version.",
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	Args:          cobra.NoArgs,
 	Run:           func(cmd *cobra.Command, _ []string) { _ = cmd.Help() },
 }

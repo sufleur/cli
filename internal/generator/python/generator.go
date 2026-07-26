@@ -204,7 +204,7 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 		td.MetadataTypeName = metaClassName
 		metaFields := buildMetadataFields(p.Metadata)
 		if p.OutputSchema != nil {
-			metaFields = append(metaFields, typedDictField{Name: "output_schema", Type: "dict[str, Any]"})
+			metaFields = append(metaFields, typedDictField{Name: "outputSchema", Type: "dict[str, Any]"})
 		}
 		if td.ModelConfigRaw != "" {
 			metaFields = append(metaFields, typedDictField{Name: "modelConfig", Type: "dict[str, Any]"})
@@ -666,7 +666,7 @@ _metadata: dict[str, dict[str, Any]] = {
         "{{$k}}": {{pyMetadataValue $v}},
         {{- end}}
         {{- if .HasOutputSchema}}
-        "output_schema": json.loads({{pyStringLiteral .OutputSchemaRaw}}),
+        "outputSchema": json.loads({{pyStringLiteral .OutputSchemaRaw}}),
         {{- end}}
         "version": "{{.Version}}",
         {{- if .ModelConfigRaw}}

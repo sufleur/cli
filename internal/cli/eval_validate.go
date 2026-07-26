@@ -23,7 +23,6 @@ Diagnostics come in three flavours:
 Exits non-zero when there is at least one blocking error.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {

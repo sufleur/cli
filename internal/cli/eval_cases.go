@@ -12,7 +12,6 @@ var evalCasesCmd = &cobra.Command{
 	Long:          "Fetches per-case detail for a run and prints an overview table (pass/fail, assertion and judge counts). Use --failed to show only failing cases, or --json for the full structured detail.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, _, err := loadUserAPIClient(cmd)
 		if err != nil {

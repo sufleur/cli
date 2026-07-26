@@ -19,7 +19,6 @@ var fileCreateCmd = &cobra.Command{
 	Long:          "Reads content from --file and creates a new file on the named version. The registry name defaults to the local filename with the .mustache suffix stripped; pass --name to override.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {
@@ -39,9 +38,20 @@ var fileCreateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("reading %s: %w", path, err)
 		}
-		registryName := stripMustacheSuffix(nameFlag)
-		if registryName == "" {
-			registryName = stripMustacheSuffix(filepath.Base(path))
+
+		var registryName string
+		if nameFlag != "" {
+			registryName = stripMustacheSuffix(nameFlag)
+		} else {
+			// Only .mustache files get a registry name derived automatically
+			// (by dropping the extension). Anything else — sending the raw
+			// filename, extension and all — is rejected server-side with an
+			// unhelpful "Bad Request Exception"; catch it here instead.
+			base := filepath.Base(path)
+			if !strings.HasSuffix(base, ".mustache") {
+				return fmt.Errorf("cannot derive a registry name from %q — pass --name to set it explicitly", base)
+			}
+			registryName = stripMustacheSuffix(base)
 		}
 		if registryName == "" {
 			return fmt.Errorf("could not derive a name; pass --name explicitly")

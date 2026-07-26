@@ -11,7 +11,6 @@ var workspaceCmd = &cobra.Command{
 	Short:         "Manage the workspaces you belong to",
 	Long:          "Subcommands operate on the workspaces the authenticated user is a member of.",
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	Args:          cobra.NoArgs,
 	Run:           func(cmd *cobra.Command, _ []string) { _ = cmd.Help() },
 }

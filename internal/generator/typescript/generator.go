@@ -478,8 +478,9 @@ export type PromptName ={{range .Prompts}} | '{{.Name}}'{{end}};
 //
 // For each prompt, lists its entrypoint files and the input type required to
 // render each one. Drives type narrowing for ` + "`render(entrypoint, input)`" + `.
-// Entrypoints with no input schema map to ` + "`Record<string, never>`" + `, so callers
-// pass ` + "`{}`" + ` for them.
+// Entrypoints with an empty object schema accept ` + "`Record<string, unknown>`" + `;
+// entrypoints with no input schema at all accept ` + "`Record<string, never>`" + `.
+// Callers pass ` + "`{}`" + ` for either case.
 
 export interface EntrypointMapping {
 {{- range $p := .Prompts}}
@@ -627,14 +628,27 @@ interface PromptResult<N extends PromptName> {
   metadata: (typeof _metadata)[N];
 }
 {{- end}}
-{{range .Prompts}}
-{{- if .Description}}
+
+// Per-prompt overloads carry each prompt's own JSDoc (description + version)
+// so it surfaces on hover at the ` + "`getPrompt(\"name\")`" + ` call site — the generic
+// implementation signature below is erased at the boundary and cannot carry
+// per-prompt docs on its own.
+{{range $p := .Prompts}}
+{{- if $p.Description}}
 /**
- * {{jsDocComment .Description}}
- * @version {{.Version}}
+ * {{jsDocComment $p.Description}}
+ * @version {{$p.Version}}
  */
 {{- end}}
-{{- end}}
+export function getPrompt(promptName: '{{$p.Name}}'): PromptResult<'{{$p.Name}}'>;
+{{end -}}
+// Generic overload — required so callers holding a dynamic PromptName
+// (e.g. a variable from iterating prompt names) can still resolve a call;
+// without it, only the literal per-prompt overloads above are externally
+// callable and a union-typed argument fails overload resolution. TS prefers
+// the more specific literal overload when the argument is itself a literal,
+// so per-prompt hover docs are unaffected.
+export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N>;
 {{- if .AnyHasOutput}}
 export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> {
   if (_draftPrompts.has(promptName)) {

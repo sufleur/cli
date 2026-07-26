@@ -13,7 +13,6 @@ var datasetSchemaSetCmd = &cobra.Command{
 	Long:          "Reads a JSON Schema (draft-07) object from --file, or stdin when --file is \"-\", and stores it on a draft version. Prints the refreshed validation report.",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], true)
 		if err != nil {

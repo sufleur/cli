@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -179,6 +180,14 @@ func TestFetchPromptVersion_NoMatchingVersion(t *testing.T) {
 	_, err := c.FetchPromptVersion(context.Background(), "test-prompt", "^99.0.0", nil)
 	if err == nil {
 		t.Fatal("expected error for null version, got nil")
+	}
+
+	var noVersion *NoPublishedVersionError
+	if !errors.As(err, &noVersion) {
+		t.Fatalf("expected *NoPublishedVersionError, got %T: %v", err, err)
+	}
+	if noVersion.PromptName != "test-prompt" || noVersion.Constraint != "^99.0.0" {
+		t.Errorf("unexpected error fields: %+v", noVersion)
 	}
 }
 
@@ -365,6 +374,82 @@ func TestFetchPromptVersion_NotFound(t *testing.T) {
 	_, err := c.FetchPromptVersion(context.Background(), "nonexistent", "^1.0.0", nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+// --- fix: GraphQL errors must render as a plain human message, never the raw
+// go-graphql-client Error.Error() dump ("Message: ..., Locations: ...,
+// Extensions: map[...], Path: ..."). ---
+
+func TestFetchPromptVersion_ServerError_FriendlyMessage(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := `{
+			"data": null,
+			"errors": [{"message": "Bad Request Exception", "extensions": {"code": "BAD_REQUEST"}}]
+		}`
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, "test-key", "", false)
+	_, err := c.FetchPromptVersion(context.Background(), "broken", "^1.0.0", nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	assertFriendlyGraphQLError(t, err, "Bad Request Exception")
+}
+
+func TestListCollectionPrompts_ServerError_FriendlyMessage(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := `{
+			"data": null,
+			"errors": [{"message": "collection not found", "extensions": {"code": "NOT_FOUND"}}]
+		}`
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, "test-key", "", false)
+	_, err := c.ListCollectionPrompts(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	assertFriendlyGraphQLError(t, err, "collection not found")
+}
+
+func TestValidatePrompts_ServerError_FriendlyMessage(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := `{
+			"data": null,
+			"errors": [{"message": "Bad Request Exception", "extensions": {"code": "BAD_REQUEST"}}]
+		}`
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, "test-key", "", false)
+	err := c.ValidatePrompts(context.Background(), []string{"foo"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	assertFriendlyGraphQLError(t, err, "Bad Request Exception")
+}
+
+// assertFriendlyGraphQLError checks that err carries wantMessage but none of
+// the raw go-graphql-client struct dump that used to leak through.
+func assertFriendlyGraphQLError(t *testing.T, err error, wantMessage string) {
+	t.Helper()
+	msg := err.Error()
+	if !strings.Contains(msg, wantMessage) {
+		t.Errorf("error = %q, want to contain %q", msg, wantMessage)
+	}
+	for _, leak := range []string{"Extensions:", "Locations:", "Path:", "map[code:"} {
+		if strings.Contains(msg, leak) {
+			t.Errorf("error = %q, leaks raw GraphQL error internals (%q)", msg, leak)
+		}
 	}
 }
 

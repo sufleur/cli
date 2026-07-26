@@ -83,6 +83,22 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("prompts not found: %s", strings.Join(e.MissingPrompts, ", "))
 }
 
+// NoPublishedVersionError is returned by FetchPromptVersion when the backend
+// resolves the prompt itself (it exists) but no version satisfies the given
+// constraint under the requested status filter. Since callers only reach
+// FetchPromptVersion after ValidatePrompts has already confirmed the prompt
+// name exists, this always means "no matching version" — never "no such
+// prompt" — which lets callers (e.g. collection installs) surface an honest,
+// actionable message instead of the generic wording via errors.As.
+type NoPublishedVersionError struct {
+	PromptName string
+	Constraint string
+}
+
+func (e *NoPublishedVersionError) Error() string {
+	return fmt.Sprintf("no version of %q matches constraint %q", e.PromptName, e.Constraint)
+}
+
 // modelConfigResult is the shape of the version's modelConfig sub-selection.
 // modelConfig is a structured GraphQL object (not a JSON scalar) — provider is
 // an enum (decoded as a string) and model is a plain string, so both need their

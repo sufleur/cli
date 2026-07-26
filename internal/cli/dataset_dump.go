@@ -26,7 +26,6 @@ non-empty directory. Push changes back with ` + "`dataset schema set`" + `,
 ` + "`dataset cases push`" + `, and ` + "`dataset update`" + `.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := parseDatasetRef(args[0], true)
 		if err != nil {

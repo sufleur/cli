@@ -39,13 +39,15 @@ type EvalYamlParseResult struct {
 // Eval is the queryable subset of the GraphQL Eval type the CLI needs:
 // enough to resolve the eval id (to trigger a run) and to pre-check that a
 // dataset is pinned. DatasetVersionId is empty when no dataset is set.
+//
+// Note: the Eval type has no provider/model fields — those are resolved from
+// the prompt version's modelConfig at run time and only appear on EvalRun /
+// EvalRunJudge (the snapshot of what a run actually used).
 type Eval struct {
 	ID               string    `json:"id"`
 	Description      string    `json:"description"`
 	PromptVersionID  string    `json:"promptVersionId"`
 	DatasetVersionID string    `json:"datasetVersionId"`
-	Provider         string    `json:"provider"`
-	Model            string    `json:"model"`
 	PassingThreshold *float64  `json:"passingThreshold"`
 	CreatedAt        time.Time `json:"createdAt"`
 	UpdatedAt        time.Time `json:"updatedAt"`
@@ -152,7 +154,7 @@ type EvalRunDetail struct {
 	Cases      []EvalRunCaseDetail `json:"caseDetails"`
 }
 
-const evalFields = "id description promptVersionId datasetVersionId provider model passingThreshold createdAt updatedAt"
+const evalFields = "id description promptVersionId datasetVersionId passingThreshold createdAt updatedAt"
 const evalRunFields = "id evalId status verdict provider model totalScore passingThreshold processedCases errorMessage detailAvailable createdAt startedAt finishedAt"
 const evalIssueFields = "path line column message code blocking"
 const evalRunAssertionFields = "id ordinal label kind definition status result errorMessage"

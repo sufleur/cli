@@ -12,8 +12,8 @@ import (
 )
 
 var versionGetReadmeCmd = &cobra.Command{
-	Use:           "get-readme @workspace/name@version",
-	Short:         "Print the README of a version to stdout",
+	Use:   "get-readme @workspace/name@version",
+	Short: "Print the README of a version to stdout",
 	Long: `Fetches just the README markdown for a version and writes it to stdout.
 Designed for agents and scripts that need the README without the full
 contents of dump (files, schema, metadata).
@@ -22,7 +22,6 @@ A trailing newline is appended if the README doesn't end with one. Use
 --json to get a structured {version, readme} object instead.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {

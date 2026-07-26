@@ -16,7 +16,6 @@ var evalCaseCmd = &cobra.Command{
 	Long:          "Fetches per-case detail for a run and prints one case's inputs, output, assertion and judge results. Use --prompts to also print the rendered candidate and judge prompts, or --json for the full structured case.",
 	Args:          cobra.ExactArgs(2),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		index, err := strconv.Atoi(args[1])
 		if err != nil {

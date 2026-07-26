@@ -84,7 +84,7 @@ func (c *client) ValidatePrompts(ctx context.Context, promptNames []string) erro
 
 	var gqlErrors graphql.Errors
 	if !errors.As(err, &gqlErrors) {
-		return err
+		return friendlyGraphQLError(err)
 	}
 
 	var missing []string
@@ -105,7 +105,30 @@ func (c *client) ValidatePrompts(ctx context.Context, promptNames []string) erro
 		return &ValidationError{MissingPrompts: missing}
 	}
 
-	return err
+	return friendlyGraphQLError(gqlErrors)
+}
+
+// friendlyGraphQLError rewrites a go-graphql-client error into a single-line
+// human message consistent with the userapi client's "graphql error: ..."
+// style. The library's own Error.Error() stringifies the *entire* struct —
+// "Message: ..., Locations: [...], Extensions: map[...], Path: [...]" — which
+// dumps internal server details (e.g. Extensions/originalError maps) straight
+// to the terminal. Only the Message field is ever meant for humans, so that's
+// all that gets surfaced here; non-GraphQL errors (network failures, etc.)
+// pass through unchanged.
+func friendlyGraphQLError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var gqlErrors graphql.Errors
+	if !errors.As(err, &gqlErrors) || len(gqlErrors) == 0 {
+		return err
+	}
+	messages := make([]string, len(gqlErrors))
+	for i, e := range gqlErrors {
+		messages[i] = e.Message
+	}
+	return fmt.Errorf("graphql error: %s", strings.Join(messages, "; "))
 }
 
 // FetchPromptVersion retrieves a specific prompt version from the API.
@@ -118,11 +141,11 @@ func (c *client) FetchPromptVersion(ctx context.Context, promptName, constraint 
 	}
 
 	if err := c.gql.Query(ctx, &q, variables); err != nil {
-		return nil, fmt.Errorf("fetching prompt version: %w", err)
+		return nil, fmt.Errorf("fetching prompt version: %w", friendlyGraphQLError(err))
 	}
 
 	if q.Prompt.Version == nil {
-		return nil, fmt.Errorf("no version of %q matches constraint %q", promptName, constraint)
+		return nil, &NoPublishedVersionError{PromptName: promptName, Constraint: constraint}
 	}
 
 	v := q.Prompt.Version
@@ -170,7 +193,7 @@ func (c *client) ListCollectionPrompts(ctx context.Context, collectionName strin
 	variables := map[string]any{"name": GraphQLID(collectionName)}
 
 	if err := c.gql.Query(ctx, &q, variables); err != nil {
-		return nil, fmt.Errorf("fetching collection %q: %w", collectionName, err)
+		return nil, fmt.Errorf("fetching collection %q: %w", collectionName, friendlyGraphQLError(err))
 	}
 
 	names := make([]string, 0, len(q.PromptCollection.Prompts))

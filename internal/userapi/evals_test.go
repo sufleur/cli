@@ -64,7 +64,13 @@ func TestClient_ApplyEvalYaml(t *testing.T) {
 		if !strings.Contains(req.Query, "applyEvalYaml(promptName: $promptName, version: $version, yaml: $yaml)") {
 			t.Errorf("query = %q", req.Query)
 		}
-		_, _ = w.Write([]byte(`{"data":{"applyEvalYaml":{"id":"7f3a","description":"hi","promptVersionId":"pv1","datasetVersionId":"dv1","provider":"ANTHROPIC","model":"claude","passingThreshold":0.8,"createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-12T10:23:45Z"}}}`))
+		// The Eval type no longer exposes provider/model (those live on
+		// EvalRun/EvalRunJudge, resolved from the version's modelConfig at run
+		// time) — selecting them 400s against current backends.
+		if strings.Contains(req.Query, "provider") || strings.Contains(req.Query, "model") {
+			t.Errorf("query must not select provider/model on Eval: %q", req.Query)
+		}
+		_, _ = w.Write([]byte(`{"data":{"applyEvalYaml":{"id":"7f3a","description":"hi","promptVersionId":"pv1","datasetVersionId":"dv1","passingThreshold":0.8,"createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-12T10:23:45Z"}}}`))
 	}))
 	defer server.Close()
 
@@ -72,7 +78,7 @@ func TestClient_ApplyEvalYaml(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyEvalYaml: %v", err)
 	}
-	if ev.ID != "7f3a" || ev.Provider != "ANTHROPIC" {
+	if ev.ID != "7f3a" {
 		t.Errorf("got %+v", ev)
 	}
 	if ev.PassingThreshold == nil || *ev.PassingThreshold != 0.8 {
@@ -117,8 +123,16 @@ func TestClient_DeleteEval(t *testing.T) {
 }
 
 func TestClient_GetEval(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"data":{"eval":{"id":"e1","description":"","promptVersionId":"pv1","datasetVersionId":"dv1","provider":"OPENAI","model":"gpt-4o","passingThreshold":null,"createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-12T10:23:45Z"}}}`))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req graphqlRequest
+		_ = json.Unmarshal(body, &req)
+		// Regression guard for the stale selection that broke `eval push`/`eval
+		// run` on current backends: the Eval type dropped provider/model.
+		if strings.Contains(req.Query, "provider") || strings.Contains(req.Query, "model") {
+			t.Errorf("query must not select provider/model on Eval: %q", req.Query)
+		}
+		_, _ = w.Write([]byte(`{"data":{"eval":{"id":"e1","description":"","promptVersionId":"pv1","datasetVersionId":"dv1","passingThreshold":null,"createdAt":"2024-03-12T10:23:45Z","updatedAt":"2024-03-12T10:23:45Z"}}}`))
 	}))
 	defer server.Close()
 

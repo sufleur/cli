@@ -32,7 +32,6 @@ The directory is created if it doesn't exist. Pass --force to overwrite a
 non-empty directory; otherwise dump aborts if the target already has files.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.ParseRef(args[0])
 		if err != nil {
@@ -90,8 +89,24 @@ non-empty directory; otherwise dump aborts if the target already has files.`,
 				"evalBytes":       len(evalYAML),
 			})
 		}
+
+		// Count all files written: prompt files + README.md + metadata.yaml + eval.yaml
+		// + optional output-schema.json and model-config.yaml
+		//
+		// This count is derived independently of writeDump rather than returned by
+		// it, so it must be kept in sync by hand: any file writeDump starts or
+		// stops writing needs a matching change here (and to the
+		// "always-written" / optional lists above).
+		filesWritten := len(v.Files) + 3 // prompt files + 3 always-written files
+		if v.OutputSchema != nil {
+			filesWritten++
+		}
+		if v.ModelConfig != nil {
+			filesWritten++
+		}
+
 		fmt.Fprintf(cmd.OutOrStdout(), "Dumped @%s/%s@%s to %s (%d files)\n",
-			ref.Workspace, ref.Name, ref.Version, dir, len(v.Files))
+			ref.Workspace, ref.Name, ref.Version, dir, filesWritten)
 		return nil
 	},
 }

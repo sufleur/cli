@@ -18,7 +18,6 @@ var versionListCmd = &cobra.Command{
 	Short:         "List versions of a prompt",
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
-	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := promptref.Parse(args[0])
 		if err != nil {
