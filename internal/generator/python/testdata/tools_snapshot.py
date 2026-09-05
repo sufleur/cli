@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Any, Literal, TypedDict, overload, Optional, Union
+from typing import Any, Literal, TypedDict, overload, Optional, Union, Protocol
 
 import chevron
 import json
@@ -165,10 +165,121 @@ def _extract_json_candidate(raw: str) -> tuple[str, bool]:
         return (bare, False)
     return (trimmed, False)
 
+# ─── Tool Contracts ───────────────────────────────────────────────────────────
+#
+# The trust boundary runs the opposite way from prompt I/O: a tool's arguments
+# are written by the model, so they are validated at runtime, while a tool's
+# result comes from your own code, so a static type is enough.
+
+
+class AcmeFetchPageToolInput(BaseModel):
+    url: str
+
+
+class AcmeFetchPageTool(Protocol):
+    """Implement this to bind @acme/fetch-page@draft."""
+
+    def __call__(self, input: AcmeFetchPageToolInput) -> Any: ...
+
+
+class VendorWebSearchToolV1_2_0Input(BaseModel):
+    maxResults: Optional[int] = None
+    query: str
+
+
+class _VendorWebSearchToolV1_2_0Output_Results(TypedDict):
+    title: str
+    url: str
+
+class VendorWebSearchToolV1_2_0Output(TypedDict):
+    results: list[_VendorWebSearchToolV1_2_0Output_Results]
+
+class VendorWebSearchToolV1_2_0(Protocol):
+    """Implement this to bind @vendor/web-search@1.2.0."""
+
+    def __call__(self, input: VendorWebSearchToolV1_2_0Input) -> VendorWebSearchToolV1_2_0Output: ...
+
+
+class VendorWebSearchToolV2_0_0Input(BaseModel):
+    maxResults: Optional[int] = None
+    query: str
+
+
+class _VendorWebSearchToolV2_0_0Output_Results(TypedDict):
+    title: str
+    url: str
+
+class VendorWebSearchToolV2_0_0Output(TypedDict):
+    results: list[_VendorWebSearchToolV2_0_0Output_Results]
+
+class VendorWebSearchToolV2_0_0(Protocol):
+    """Implement this to bind @vendor/web-search@2.0.0."""
+
+    def __call__(self, input: VendorWebSearchToolV2_0_0Input) -> VendorWebSearchToolV2_0_0Output: ...
+
+
+class ToolExecutionError(Exception):
+    """Raise from a tool implementation to report a failure the model may see."""
+
+
+class _DispatchSuccess(TypedDict):
+    content: str
+    success: Literal[True]
+
+
+class DispatchFailure(TypedDict):
+    error: str
+    code: Literal["unknown-tool", "input-validation", "execution"]
+    success: Literal[False]
+
+# Bindings per prompt, in functional syntax because wire names may be
+# kebab-case, which is not a valid identifier. Every key is required — the model
+# is offered every pinned tool, so an implementation for each has to be supplied.
+
+AppDailyBriefTools = TypedDict("AppDailyBriefTools", {
+    "fetch-page": AcmeFetchPageTool,
+    "web_search": VendorWebSearchToolV1_2_0,
+})
+
+
+AppResearchTools = TypedDict("AppResearchTools", {
+    "search": VendorWebSearchToolV2_0_0,
+})
+
+
+# ─── Tool Definitions ─────────────────────────────────────────────────────────
+#
+# Provider-neutral {name, description, input_schema}; adapt them if your SDK's
+# tool format differs.
+
+_tool_defs: dict[str, list[dict[str, Any]]] = {
+    "@app/daily-brief": json.loads('[{"description":"Fetches a page.","input_schema":{"properties":{"url":{"type":"string"}},"required":["url"],"type":"object"},"name":"fetch-page"},{"description":"Searches the web.\\n\\nReturns JSON matching: {\\"properties\\":{\\"results\\":{\\"items\\":{\\"properties\\":{\\"title\\":{\\"type\\":\\"string\\"},\\"url\\":{\\"type\\":\\"string\\"}},\\"required\\":[\\"title\\",\\"url\\"],\\"type\\":\\"object\\"},\\"type\\":\\"array\\"}},\\"required\\":[\\"results\\"],\\"type\\":\\"object\\"}","input_schema":{"properties":{"maxResults":{"type":"integer"},"query":{"description":"What to search for","type":"string"}},"required":["query"],"type":"object"},"name":"web_search"}]'),
+    "@app/research": json.loads('[{"description":"Searches the web, v2.\\n\\nReturns JSON matching: {\\"properties\\":{\\"results\\":{\\"items\\":{\\"properties\\":{\\"title\\":{\\"type\\":\\"string\\"},\\"url\\":{\\"type\\":\\"string\\"}},\\"required\\":[\\"title\\",\\"url\\"],\\"type\\":\\"object\\"},\\"type\\":\\"array\\"}},\\"required\\":[\\"results\\"],\\"type\\":\\"object\\"}","input_schema":{"properties":{"maxResults":{"type":"integer"},"query":{"description":"What to search for","type":"string"}},"required":["query"],"type":"object"},"name":"search"}]'),
+}
+
+# Argument validators, looked up at dispatch time. The typed per-prompt classes
+# below exist for the type checker; get_prompt returns the dynamic result object,
+# so this is what actually validates what the model sent.
+_tool_input_models: dict[str, dict[str, type[BaseModel]]] = {
+    "@app/daily-brief": {
+        "fetch-page": AcmeFetchPageToolInput,
+        "web_search": VendorWebSearchToolV1_2_0Input,
+    },
+    "@app/research": {
+        "search": VendorWebSearchToolV2_0_0Input,
+    },
+}
+
+# Pins on unpublished tool versions: the contract can still change under you.
+_draft_tools: dict[str, list[str]] = {
+    "@app/daily-brief": ["fetch-page"],
+}
+
 # ─── Draft Prompts ────────────────────────────────────────────────────────────
 
-_draft_prompts: set[str] = {
-}
+
+# No draft prompts installed. Spelled set() rather than {}, which is a dict.
+_draft_prompts: set[str] = set()
 
 # ─── Per-prompt result types ─────────────────────────────────────────────────
 
@@ -193,6 +304,47 @@ class _AppDailyBriefResult:
         if template is None:
             raise KeyError(f'[sufleur] Unknown entrypoint "{entrypoint}" for prompt "@app/daily-brief"')
         return {"prompt": chevron.render(template, input or {}, partials_dict=self._partials)}
+
+    def tool_defs(self) -> list[dict[str, Any]]:
+        """Provider-neutral definitions for every tool this prompt pins."""
+        return list(_tool_defs["@app/daily-brief"])
+
+    def dispatch_tool(
+        self, name: str, raw_input: Any, tools: AppDailyBriefTools
+    ) -> _DispatchSuccess | DispatchFailure:
+        """Validate the model's arguments and invoke the bound implementation.
+
+        Deliberately not a loop: call it once per tool_use block the model emits.
+        """
+        if name == "fetch-page":
+            try:
+                fetch_page_input = AcmeFetchPageToolInput.model_validate(raw_input)
+            except ValidationError as e:
+                return {"error": str(e), "code": "input-validation", "success": False}
+            try:
+                fetch_page_output = tools["fetch-page"](fetch_page_input)
+            except ToolExecutionError as e:
+                # Only ToolExecutionError is reported back to the model; anything
+                # else is a bug in the implementation and keeps its traceback.
+                return {"error": str(e), "code": "execution", "success": False}
+            return {"content": json.dumps(fetch_page_output), "success": True}
+        if name == "web_search":
+            try:
+                web_search_input = VendorWebSearchToolV1_2_0Input.model_validate(raw_input)
+            except ValidationError as e:
+                return {"error": str(e), "code": "input-validation", "success": False}
+            try:
+                web_search_output = tools["web_search"](web_search_input)
+            except ToolExecutionError as e:
+                # Only ToolExecutionError is reported back to the model; anything
+                # else is a bug in the implementation and keeps its traceback.
+                return {"error": str(e), "code": "execution", "success": False}
+            return {"content": json.dumps(web_search_output), "success": True}
+        return {
+            "error": f'Unknown tool "{name}" for prompt "@app/daily-brief"',
+            "code": "unknown-tool",
+            "success": False,
+        }
 
 
 class _AppPlainResult:
@@ -244,6 +396,35 @@ class _AppResearchResult:
             return {"error": str(e), "code": "schema-validation", "success": False}
         return {"data": validated, "success": True}
 
+    def tool_defs(self) -> list[dict[str, Any]]:
+        """Provider-neutral definitions for every tool this prompt pins."""
+        return list(_tool_defs["@app/research"])
+
+    def dispatch_tool(
+        self, name: str, raw_input: Any, tools: AppResearchTools
+    ) -> _DispatchSuccess | DispatchFailure:
+        """Validate the model's arguments and invoke the bound implementation.
+
+        Deliberately not a loop: call it once per tool_use block the model emits.
+        """
+        if name == "search":
+            try:
+                search_input = VendorWebSearchToolV2_0_0Input.model_validate(raw_input)
+            except ValidationError as e:
+                return {"error": str(e), "code": "input-validation", "success": False}
+            try:
+                search_output = tools["search"](search_input)
+            except ToolExecutionError as e:
+                # Only ToolExecutionError is reported back to the model; anything
+                # else is a bug in the implementation and keeps its traceback.
+                return {"error": str(e), "code": "execution", "success": False}
+            return {"content": json.dumps(search_output), "success": True}
+        return {
+            "error": f'Unknown tool "{name}" for prompt "@app/research"',
+            "code": "unknown-tool",
+            "success": False,
+        }
+
 
 # ─── Overloads + implementation ──────────────────────────────────────────────
 
@@ -268,6 +449,13 @@ def get_prompt(prompt_name: PromptName) -> Any:
     if prompt_name in _draft_prompts:
         warnings.warn(
             f'[sufleur] Warning: prompt "{prompt_name}" is a draft version',
+            stacklevel=2,
+        )
+    _pinned_drafts = _draft_tools.get(prompt_name)
+    if _pinned_drafts:
+        warnings.warn(
+            f'[sufleur] Warning: prompt "{prompt_name}" pins draft tool version(s): '
+            + ", ".join(_pinned_drafts),
             stacklevel=2,
         )
 
@@ -300,5 +488,29 @@ def get_prompt(prompt_name: PromptName) -> Any:
             except ValidationError as e:
                 return {"error": str(e), "code": "schema-validation", "success": False}
             return {"data": validated, "success": True}
+
+        def tool_defs(self) -> list[dict[str, Any]]:
+            return list(_tool_defs.get(prompt_name, []))
+
+        def dispatch_tool(self, name: str, raw_input: Any, tools: Any) -> dict[str, Any]:
+            model = _tool_input_models.get(prompt_name, {}).get(name)
+            impl = tools.get(name) if isinstance(tools, dict) else None
+            if model is None or impl is None:
+                return {
+                    "error": f'Unknown tool "{name}" for prompt "{prompt_name}"',
+                    "code": "unknown-tool",
+                    "success": False,
+                }
+            try:
+                validated = model.model_validate(raw_input)
+            except ValidationError as e:
+                return {"error": str(e), "code": "input-validation", "success": False}
+            try:
+                output = impl(validated)
+            except ToolExecutionError as e:
+                # Only ToolExecutionError is reported back to the model; anything
+                # else is a bug in the implementation and keeps its traceback.
+                return {"error": str(e), "code": "execution", "success": False}
+            return {"content": json.dumps(output), "success": True}
 
     return _PromptResult()
