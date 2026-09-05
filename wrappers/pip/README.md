@@ -209,6 +209,10 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `tool version set-readme @ws/name@draft [--content \| --file]` | Set the README |
 | `tool version set-metadata @ws/name@draft [--from-file \| --string K=V]` | Replace or patch free-form metadata |
 | `tool schema get / set @ws/name@version [--output] [--file PATH]` | Read or replace the input (or `--output`) JSON Schema |
+| `version tools list @ws/name@version` | List the tool contracts a version pins |
+| `version tools add @ws/name@draft @ws/tool@^1.0.0 [--as NAME]` | Pin a tool version (constraint resolved once, at link time) |
+| `version tools rename @ws/name@draft @ws/tool --as NAME` | Change the wire name the model sees |
+| `version tools remove @ws/name@draft @ws/tool` | Remove a pin from a draft |
 
 A **tool contract** is the model-facing definition of a tool — its wire name, the description that steers when it gets called, and the JSON Schema of its arguments — versioned like a prompt. A prompt version pins concrete tool versions, and `sufleur generate` turns those pins into typed bindings, provider-neutral definitions and a `dispatch_tool` that validates what the model sent. `tool schema set` checks a schema locally first, against the subset the generators can express, so nothing silently degrades to `unknown`/`Any`. As with prompts, **publishing a tool version and changing its visibility are done in the web app**.
 

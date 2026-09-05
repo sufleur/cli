@@ -103,6 +103,7 @@ Produces:
   metadata.yaml                # flat key→value, "{}" when empty
   model-config.yaml            # provider/model/parameters, absent if unset
   eval.yaml                    # the version's eval config (skeleton if none)
+  tools.yaml                   # the tool contracts this version pins (informational)
 ```
 
 ### 2. Edit files locally
@@ -367,7 +368,7 @@ A prompt belongs to **at most one** collection. Linking a prompt that is already
 
 A prompt version can pin **tool contracts**: the wire name the model emits, the description that steers when a tool gets called, and the JSON Schema of its arguments. Pins are frozen into a published version alongside its files, so they arrive with the prompt — `sufleur install` fetches them, and `sufleur generate` turns them into typed bindings.
 
-The CLI can author tool contracts (see below) but not yet change what a prompt version pins — do that in the web app.
+The CLI can author tool contracts and manage what a prompt version pins — see below.
 
 What the generated file gains, for each prompt that pins something:
 
@@ -457,6 +458,32 @@ An input schema must be `{"type": "object"}` at the root — it describes the ar
 
 Unlike a prompt version's metadata, a tool version's is a plain JSON object with no per-key mutation on the server. `--from-file` replaces the whole object; the typed flags fetch the current object, patch it, and write it back whole. Two concurrent edits can lose one another.
 
+### Pinning tools to a prompt version
+
+Pins live on a **version**, not on the prompt: they are frozen when the version is published, exactly like its files and output schema. That is why these sit under `version`.
+
+```bash
+sufleur version tools list   @workspace/name@version
+sufleur version tools add    @workspace/name@draft @workspace/tool@^1.2.0 [--as web_search]
+sufleur version tools rename @workspace/name@draft @workspace/tool --as lookup
+sufleur version tools remove @workspace/name@draft @workspace/tool
+```
+
+* `add` takes a **constraint** (`^1.2.0`, `*`, `1.2.0`, or `draft`). The registry resolves it **once, at link time**, and stores the concrete version — a pin never moves afterwards. The command prints the version it resolved to.
+* `--as` is the wire name the model sees. It defaults to the tool's own name, and exists so two tools sharing a bare name can be told apart within one prompt. It must match `^[a-zA-Z0-9_-]{1,64}$`.
+* `rename` and `remove` take the tool **without** a version: a prompt version pins at most one version of any given tool, so the tool alone identifies the pin.
+* Tools in **another workspace** can be pinned as long as you can read them — that is the point of publishing a tool.
+* `remove` is not the forbidden `unlink`: removing a pin from a draft is a local, one-command-reversible edit that the registry refuses outright on a published version, unlike detaching a prompt from a shared collection.
+
+`version dump` writes the pins to `tools.yaml` as well. That file is **informational** — nothing reads it back. Edit pins with the commands above.
+
+#### What the registry enforces
+
+* Changing pins on a **published** version is rejected; pin against `@draft`.
+* Pinning the same tool twice is rejected — rename the existing pin instead.
+* Two pins cannot share a wire name within one version; the error names the clash and suggests a workspace-qualified alias.
+* **Publishing** a prompt version is rejected while any pinned tool version is still a draft, and making a prompt public is rejected while it pins a non-public tool.
+
 ## What the CLI cannot do — hand back to the human
 
 These operations are intentionally human-only:
@@ -466,7 +493,6 @@ These operations are intentionally human-only:
 * **Deleting a collection**, or **removing/unlinking a prompt from a collection** (these are destructive — only `link` is exposed, never an unlink).
 * **Publishing a tool version.** The mutation exists, but it is the gate that unblocks publishing every dependent prompt, so it stays with a human — as prompt and dataset publishing does.
 * **Changing a tool's visibility, or deleting a tool.** Going private can strand published prompts in other workspaces; deletion is destructive and cross-workspace.
-* **Changing what a prompt version pins.** The CLI reads pins so `install`/`generate` can type them; editing them is web-app-only for now.
 * **Configuring AI provider credentials** (adding or removing API keys). The CLI can *list* a workspace's providers (`workspace providers @workspace`) so you know what an eval can run against, but never add or change them.
 
 When a draft or collection is ready for any of these, stop and summarise what changed. Tell the user to act via the web UI when they're ready. Do not look for or attempt to use a `publish`, `visibility`, `delete`-collection, `unlink`, or provider-credential command — they intentionally do not exist on the CLI.
@@ -514,6 +540,10 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Set model config | `sufleur version set-model-config @workspace/name@draft --provider anthropic --model NAME [--params '{...}']` (or `--from-file ./model-config.yaml`) |
 | Read README | `sufleur version get-readme @workspace/name@version` |
 | Set README | `sufleur version set-readme @workspace/name@draft [--content STR \| --file PATH]` |
+| List pinned tools | `sufleur version tools list @workspace/name@version` |
+| Pin a tool | `sufleur version tools add @workspace/name@draft @workspace/tool@^1.0.0 [--as NAME]` |
+| Rename a pin's wire name | `sufleur version tools rename @workspace/name@draft @workspace/tool --as NAME` |
+| Remove a pin | `sufleur version tools remove @workspace/name@draft @workspace/tool` |
 | List files | `sufleur file list @workspace/name@draft` |
 | Create file | `sufleur file create @workspace/name@draft --file ./welcome.mustache` |
 | Update file | `sufleur file update @workspace/name@draft --name welcome --file ./welcome.mustache` |
