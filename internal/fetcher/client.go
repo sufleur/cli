@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	graphql "github.com/hasura/go-graphql-client"
@@ -182,7 +183,38 @@ func (c *client) FetchPromptVersion(ctx context.Context, promptName, constraint 
 		OutputSchema: v.OutputSchema,
 		ModelConfig:  modelConfig,
 		Files:        files,
+		Tools:        mapToolPins(v.Tools),
 	}, nil
+}
+
+// mapToolPins converts the pinned tool contracts on a version.
+//
+// It returns nil rather than an empty slice for a version that pins nothing, so
+// the resulting PromptData marshals — and therefore hashes — exactly as it did
+// before tool support existed. Every installed project depends on that.
+func mapToolPins(deps []promptToolDependencyResponse) []generator.ToolPin {
+	if len(deps) == 0 {
+		return nil
+	}
+
+	pins := make([]generator.ToolPin, len(deps))
+	for i, d := range deps {
+		tv := d.ToolVersion
+		pins[i] = generator.ToolPin{
+			Alias:            d.Alias,
+			Ref:              "@" + tv.Tool.Workspace.Name + "/" + tv.Tool.Name,
+			Version:          tv.Version,
+			Status:           tv.Status,
+			ModelDescription: tv.ModelDescription,
+			InputSchema:      tv.InputSchema,
+			OutputSchema:     tv.OutputSchema,
+			Metadata:         tv.Metadata,
+		}
+	}
+
+	// The backend orders by alias, but generated output must not depend on that.
+	sort.Slice(pins, func(i, j int) bool { return pins[i].Alias < pins[j].Alias })
+	return pins
 }
 
 // ListCollectionPrompts returns the bare names of the prompts in a collection.

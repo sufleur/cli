@@ -121,6 +121,36 @@ type fetchPromptVersionResult struct {
 	OutputSchema JSON `scalar:"true"`
 	ModelConfig  *modelConfigResult
 	Files        []promptFileResponse
+	Tools        []promptToolDependencyResponse
+}
+
+// promptToolDependencyResponse is one pinned tool contract. The backend inlines
+// the whole contract here, so installing a prompt needs no second request.
+//
+// The tool's workspace is selected because a prompt can pin a tool from another
+// workspace: without it two workspaces' `web-search` tools are indistinguishable,
+// and generated type names could not be derived stably. `readme` is deliberately
+// not selected — it is capped at 100 kB and codegen has no use for it.
+type promptToolDependencyResponse struct {
+	Alias       string
+	ToolVersion promptToolVersionResponse
+}
+
+type promptToolVersionResponse struct {
+	Version          string
+	Status           string
+	ModelDescription string
+	InputSchema      JSON `scalar:"true"`
+	OutputSchema     JSON `scalar:"true"`
+	Metadata         JSON `scalar:"true"`
+	Tool             promptToolResponse
+}
+
+type promptToolResponse struct {
+	Name      string
+	Workspace struct {
+		Name string
+	}
 }
 
 // fetchPromptVersionQuery is the struct-based query for the hasura GraphQL client.

@@ -551,3 +551,149 @@ func TestClient_NoWorkspaceHeader_WhenEmpty(t *testing.T) {
 	c := NewClient(ts.URL, "test-key", "", false)
 	_ = c.ValidatePrompts(context.Background(), []string{"hello"})
 }
+
+func TestFetchPromptVersion_WithTools(t *testing.T) {
+	var sentQuery string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Query string `json:"query"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		sentQuery = body.Query
+
+		w.Header().Set("Content-Type", "application/json")
+		// Returned out of alias order, and with a cross-workspace pin.
+		resp := `{
+			"data": {
+				"prompt": {
+					"description": "Agentic prompt",
+					"version": {
+						"version": "1.0.0",
+						"status": "PUBLISHED",
+						"metadata": {},
+						"outputSchema": null,
+						"modelConfig": null,
+						"files": [
+							{"name": "main", "content": "Go", "isEntrypoint": true, "inputSchema": null, "schemaWarnings": []}
+						],
+						"tools": [
+							{
+								"alias": "web_search",
+								"toolVersion": {
+									"version": "2.1.0",
+									"status": "PUBLISHED",
+									"modelDescription": "Searches the web.",
+									"inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}},
+									"outputSchema": {"type": "object"},
+									"metadata": {"owner": "platform"},
+									"tool": {"name": "web-search", "workspace": {"name": "vendor"}}
+								}
+							},
+							{
+								"alias": "fetch_page",
+								"toolVersion": {
+									"version": "0.4.0",
+									"status": "DRAFT",
+									"modelDescription": "Fetches a page.",
+									"inputSchema": {"type": "object"},
+									"outputSchema": null,
+									"metadata": {},
+									"tool": {"name": "fetch-page", "workspace": {"name": "acme"}}
+								}
+							}
+						]
+					}
+				}
+			}
+		}`
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, "test-key", "", false)
+	pd, err := c.FetchPromptVersion(context.Background(), "agent", "*", nil)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// The tool's own workspace has to be selected: a prompt can pin across
+	// workspaces, and the ref is what names generated types.
+	for _, want := range []string{"tools", "alias", "modelDescription", "workspace"} {
+		if !strings.Contains(sentQuery, want) {
+			t.Errorf("query is missing %q:\n%s", want, sentQuery)
+		}
+	}
+
+	if len(pd.Tools) != 2 {
+		t.Fatalf("expected 2 pins, got %d", len(pd.Tools))
+	}
+	// Sorted by alias regardless of the order the server returned them in.
+	if pd.Tools[0].Alias != "fetch_page" || pd.Tools[1].Alias != "web_search" {
+		t.Errorf("pins are not sorted by alias: %q, %q", pd.Tools[0].Alias, pd.Tools[1].Alias)
+	}
+
+	search := pd.Tools[1]
+	if search.Ref != "@vendor/web-search" {
+		t.Errorf("expected the tool's own workspace in the ref, got %q", search.Ref)
+	}
+	if search.Version != "2.1.0" || search.Status != "PUBLISHED" {
+		t.Errorf("unexpected version/status: %q %q", search.Version, search.Status)
+	}
+	if search.ModelDescription != "Searches the web." {
+		t.Errorf("unexpected model description: %q", search.ModelDescription)
+	}
+	if search.InputSchema == nil || search.InputSchema["type"] != "object" {
+		t.Errorf("input schema did not decode: %v", search.InputSchema)
+	}
+	if search.OutputSchema == nil {
+		t.Error("expected an output schema")
+	}
+	if search.Metadata["owner"] != "platform" {
+		t.Errorf("expected metadata carried through, got %v", search.Metadata)
+	}
+
+	draft := pd.Tools[0]
+	if draft.Status != "DRAFT" {
+		t.Errorf("expected the draft pin's status carried through, got %q", draft.Status)
+	}
+	if draft.OutputSchema != nil {
+		t.Errorf("a null output schema must decode to nil, got %v", draft.OutputSchema)
+	}
+}
+
+// A version that pins nothing must leave Tools nil, not empty: the cache bytes
+// and the integrity hash both depend on it.
+func TestFetchPromptVersion_EmptyToolsDecodesToNil(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := `{
+			"data": {
+				"prompt": {
+					"description": "Plain prompt",
+					"version": {
+						"version": "1.0.0",
+						"status": "PUBLISHED",
+						"metadata": {},
+						"outputSchema": null,
+						"modelConfig": null,
+						"files": [
+							{"name": "main", "content": "Hi", "isEntrypoint": true, "inputSchema": null, "schemaWarnings": []}
+						],
+						"tools": []
+					}
+				}
+			}
+		}`
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, "test-key", "", false)
+	pd, err := c.FetchPromptVersion(context.Background(), "plain", "*", nil)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if pd.Tools != nil {
+		t.Errorf("expected nil Tools for a prompt that pins none, got %#v", pd.Tools)
+	}
+}
