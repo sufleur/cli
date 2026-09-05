@@ -363,6 +363,31 @@ To work with the prompts inside a collection, list them and then use the normal 
 
 A prompt belongs to **at most one** collection. Linking a prompt that is already in a different collection moves it out of that one, so `collection link` refuses unless you pass `--force`.
 
+## Tool contracts in generated code
+
+A prompt version can pin **tool contracts**: the wire name the model emits, the description that steers when a tool gets called, and the JSON Schema of its arguments. Pins are frozen into a published version alongside its files, so they arrive with the prompt — `sufleur install` fetches them, and `sufleur generate` turns them into typed bindings.
+
+In this phase the CLI **consumes** pins; it cannot create tools or change what a prompt pins. Do that in the web app.
+
+What the generated file gains, for each prompt that pins something:
+
+* a validating schema and input type per contract (zod / pydantic),
+* a static output type,
+* a function type your implementation must satisfy,
+* `toolDefs()` — provider-neutral `{name, description, input_schema}` to hand to an SDK,
+* `dispatchTool(name, rawInput, tools)` — validates the model's arguments, calls your binding, returns `{success: true, content}` or `{success: false, code}` where code is `unknown-tool`, `input-validation` or `execution`.
+
+The trust boundary runs the **opposite way** from prompt I/O, and it matters: a tool's *arguments* are written by the model, so they are validated at runtime; a tool's *result* comes from engineer code, so it is typed statically. `dispatchTool` is a pure function — there is no loop, no SDK call and no retry in it; call it once per tool-use block.
+
+Only `ToolExecutionError` is reported back to the model as an `execution` failure. Anything else thrown by an implementation is a bug and propagates with its stack, rather than being quietly handed to the model as a tool result.
+
+Two things worth telling the user about when they appear:
+
+* `install` warns `pins draft tool "x"` when a pinned tool version is still a draft. The contract can change without the prompt's version moving, so regenerate before trusting the output.
+* Generated tool type names come from the tool's registry ref, not the wire name — the same contract pinned by two prompts is one type. If a prompt pins two *versions* of one tool, every version's type gets a version suffix (`…ToolV1_2_0`), so names never depend on install order.
+
+Pins the caller cannot read are silently omitted by the registry, so a prompt could in principle generate with a tool missing. Publish-time closure rules make this all but unreachable — a published public prompt cannot pin a non-public tool — but a draft prompt pinning a cross-workspace tool that has since been made private is the residual case.
+
 ## What the CLI cannot do — hand back to the human
 
 These operations are intentionally human-only:
@@ -370,6 +395,7 @@ These operations are intentionally human-only:
 * **Publishing a draft** (promoting a prompt **or dataset** draft to a stable version).
 * **Changing visibility** (PUBLIC ↔ PRIVATE) of a prompt, dataset, or collection.
 * **Deleting a collection**, or **removing/unlinking a prompt from a collection** (these are destructive — only `link` is exposed, never an unlink).
+* **Creating or editing tool contracts**, and **changing what a prompt version pins**. The CLI reads pins so `install`/`generate` can type them; authoring them is web-app-only for now.
 * **Configuring AI provider credentials** (adding or removing API keys). The CLI can *list* a workspace's providers (`workspace providers @workspace`) so you know what an eval can run against, but never add or change them.
 
 When a draft or collection is ready for any of these, stop and summarise what changed. Tell the user to act via the web UI when they're ready. Do not look for or attempt to use a `publish`, `visibility`, `delete`-collection, `unlink`, or provider-credential command — they intentionally do not exist on the CLI.

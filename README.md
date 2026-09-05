@@ -38,6 +38,26 @@ if (result.success) {
 
 The generated file inlines everything — no vendor SDK, no runtime fetches. Its only runtime deps are `mustache` and `zod` (or `chevron` and `pydantic` for Python).
 
+### Tools
+
+A prompt version can pin **tool contracts** — the wire name, the description that steers when the model reaches for a tool, and the JSON Schema of its arguments — and those come down with the prompt:
+
+```ts
+const brief = getPrompt('@acme/daily-brief');
+
+// Provider-neutral { name, description, input_schema } for every pinned tool.
+const res = await anthropic.messages.create({ ..., tools: brief.toolDefs() });
+
+for (const block of res.content) {
+  if (block.type !== 'tool_use') continue;
+  // Validates what the model sent, then calls your implementation.
+  const out = await brief.dispatchTool(block.name, block.input, { webSearch: mySearchFn });
+  // -> { success: true, content } | { success: false, code: 'input-validation' | … }
+}
+```
+
+The trust boundary runs the opposite way from prompt I/O: a tool's **arguments** are written by the model, so they are validated at runtime, while a tool's **result** comes from your own code, so it is typed statically. The bindings object is typed from the pins, so forgetting a tool — or changing one's shape — is a compile error rather than a runtime surprise. You still own the conversation loop; `dispatchTool` is a pure function.
+
 ## Quickstart
 
 Zero to that typed call in under five minutes. Public prompts need no account or API key:
