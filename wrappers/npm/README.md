@@ -197,6 +197,24 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `dataset version draft @ws/name` | New draft, carrying forward the latest published schema + cases |
 | `dataset version list @ws/name [--status DRAFT\|PUBLISHED]` | List a dataset's versions |
 | `dataset version validate @ws/name@draft` | Check every case against the schema (non-zero exit on a violation) |
+| `tool create @ws/name [--description ...]` | Create a tool contract and its initial draft (private) |
+| `tool list @ws` / `tool get @ws/name` | List tools, or show one with its dependents and versions |
+| `tool update @ws/name --description "..."` | Edit the catalog blurb (never sent to the model) |
+| `tool dump @ws/name@version --to ./dir` | Export both schemas, the model description, README and metadata |
+| `tool version draft @ws/name` | New draft, carrying the latest published contract forward |
+| `tool version list @ws/name [--status DRAFT\|PUBLISHED]` | List a tool's versions |
+| `tool version get @ws/name@version` | Show the model description and both schemas |
+| `tool version delete @ws/name@draft` | Delete a draft version |
+| `tool version set-description @ws/name@draft [--content \| --file]` | Set the **model-facing** description (versioned) |
+| `tool version set-readme @ws/name@draft [--content \| --file]` | Set the README |
+| `tool version set-metadata @ws/name@draft [--from-file \| --string K=V]` | Replace or patch free-form metadata |
+| `tool schema get / set @ws/name@version [--output] [--file PATH]` | Read or replace the input (or `--output`) JSON Schema |
+| `version tools list @ws/name@version` | List the tool contracts a version pins |
+| `version tools add @ws/name@draft @ws/tool@^1.0.0 [--as NAME]` | Pin a tool version (constraint resolved once, at link time) |
+| `version tools rename @ws/name@draft @ws/tool --as NAME` | Change the wire name the model sees |
+| `version tools remove @ws/name@draft @ws/tool` | Remove a pin from a draft |
+
+A **tool contract** is the model-facing definition of a tool — its wire name, the description that steers when it gets called, and the JSON Schema of its arguments — versioned like a prompt. A prompt version pins concrete tool versions, and `sufleur generate` turns those pins into typed bindings, provider-neutral definitions and a `dispatchTool` that validates what the model sent. `tool schema set` checks a schema locally first, against the subset the generators can express, so nothing silently degrades to `unknown`/`Any`. As with prompts, **publishing a tool version and changing its visibility are done in the web app**.
 
 An **eval** scores a prompt version against a **dataset** — judges, CEL assertions, and a passing threshold. Datasets are versioned collections of test cases, authored from the CLI too (the `dataset …` commands above) and referenced from the eval YAML via `dataset.ref`. Like prompts, **publishing a dataset version and changing its visibility are done in the web app**. Full guides: <https://sufleur.com/docs/evals> and <https://sufleur.com/docs/datasets>.
 

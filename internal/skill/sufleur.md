@@ -103,6 +103,7 @@ Produces:
   metadata.yaml                # flat key→value, "{}" when empty
   model-config.yaml            # provider/model/parameters, absent if unset
   eval.yaml                    # the version's eval config (skeleton if none)
+  tools.yaml                   # the tool contracts this version pins (informational)
 ```
 
 ### 2. Edit files locally
@@ -367,7 +368,7 @@ A prompt belongs to **at most one** collection. Linking a prompt that is already
 
 A prompt version can pin **tool contracts**: the wire name the model emits, the description that steers when a tool gets called, and the JSON Schema of its arguments. Pins are frozen into a published version alongside its files, so they arrive with the prompt — `sufleur install` fetches them, and `sufleur generate` turns them into typed bindings.
 
-In this phase the CLI **consumes** pins; it cannot create tools or change what a prompt pins. Do that in the web app.
+The CLI can author tool contracts and manage what a prompt version pins — see below.
 
 What the generated file gains, for each prompt that pins something:
 
@@ -388,6 +389,101 @@ Two things worth telling the user about when they appear:
 
 Pins the caller cannot read are silently omitted by the registry, so a prompt could in principle generate with a tool missing. Publish-time closure rules make this all but unreachable — a published public prompt cannot pin a non-public tool — but a draft prompt pinning a cross-workspace tool that has since been made private is the residual case.
 
+### Authoring tool contracts
+
+A tool is workspace-scoped and versioned exactly like a prompt: one draft at a time, semver on publish, immutable once published. Address it as `@workspace/name`, a version as `@workspace/name@<version>` where `<version>` is a semver, a constraint, or the literal `draft`.
+
+**Tool names are stricter than prompt names**: `^[a-z][a-z0-9_-]{0,63}$` — no dots, must start with a letter — because the name doubles as the default wire name the model sees, and providers constrain that.
+
+**Two different descriptions, and mixing them up is the easy mistake:**
+
+* `tool update --description` — the *catalog blurb*. Unversioned, used in listing and search, **never sent to the model**.
+* `tool version set-description` — the *model-facing text*, versioned and frozen on publish. This is what steers whether the model calls the tool.
+
+```bash
+sufleur tool list @workspace [--search ...]
+sufleur tool get @workspace/name                  # catalog metadata, dependents, versions
+sufleur tool create @workspace/name --description "..."   # creates the tool + a draft
+sufleur tool update @workspace/name --description "..."
+
+sufleur tool version draft @workspace/name        # new draft, carrying the last published contract forward
+sufleur tool version list @workspace/name [--status DRAFT|PUBLISHED]
+sufleur tool version get @workspace/name@version  # model description + both schemas
+sufleur tool version delete @workspace/name@draft
+```
+
+#### Local loop: dump → edit → push
+
+```bash
+sufleur tool dump @workspace/name@draft --to ./tool
+```
+
+Produces:
+
+```
+./tool/
+  input-schema.json     the arguments the model emits; always written
+  output-schema.json    what your implementation returns; absent if unset
+  description.md        the model-facing description (versioned)
+  README.md             documentation for humans; always written
+  metadata.yaml         free-form metadata; "{}" when empty
+  tool.yaml             catalog metadata — read-only, nothing reads it back
+```
+
+Push each piece back:
+
+```bash
+sufleur tool schema set @workspace/name@draft --file ./tool/input-schema.json
+sufleur tool schema set @workspace/name@draft --output --file ./tool/output-schema.json
+sufleur tool schema set @workspace/name@draft --output --clear
+sufleur tool version set-description @workspace/name@draft --file ./tool/description.md
+sufleur tool version set-readme @workspace/name@draft --file ./tool/README.md
+sufleur tool version set-metadata @workspace/name@draft --from-file ./tool/metadata.yaml
+sufleur tool version set-metadata @workspace/name@draft --string owner=platform --delete stale
+```
+
+`sufleur tool schema get @workspace/name@version [--output] [--file PATH]` reads one back without dumping the whole version.
+
+#### Write schemas the generators can express
+
+`tool schema set` checks the schema **locally, before anything is sent**, against the subset both code generators can model. The registry accepts more than that, but anything outside it silently becomes `unknown` in generated TypeScript and `Any` in generated Python — which you would only notice much later, reading the output.
+
+Supported: `type` (string, integer, number, boolean, null, object, array), `properties`, `items` with a single schema, `required`, `enum` with values all of one type, `oneOf`/`anyOf`, plus `description`/`title`/`default`.
+
+Rejected, with a JSON Pointer to the offending property: `$ref`, `$defs`, `allOf`, `not`, `if`/`then`/`else`, `patternProperties`, a schema-valued `additionalProperties`, tuple-typed `items`, a mixed-type `enum`, a list of types (use `anyOf`), and a `required` entry with no matching property.
+
+An input schema must be `{"type": "object"}` at the root — it describes the arguments the model emits, which providers require to be an object. An output schema may be any shape.
+
+#### `set-metadata` is a read-modify-write
+
+Unlike a prompt version's metadata, a tool version's is a plain JSON object with no per-key mutation on the server. `--from-file` replaces the whole object; the typed flags fetch the current object, patch it, and write it back whole. Two concurrent edits can lose one another.
+
+### Pinning tools to a prompt version
+
+Pins live on a **version**, not on the prompt: they are frozen when the version is published, exactly like its files and output schema. That is why these sit under `version`.
+
+```bash
+sufleur version tools list   @workspace/name@version
+sufleur version tools add    @workspace/name@draft @workspace/tool@^1.2.0 [--as web_search]
+sufleur version tools rename @workspace/name@draft @workspace/tool --as lookup
+sufleur version tools remove @workspace/name@draft @workspace/tool
+```
+
+* `add` takes a **constraint** (`^1.2.0`, `*`, `1.2.0`, or `draft`). The registry resolves it **once, at link time**, and stores the concrete version — a pin never moves afterwards. The command prints the version it resolved to.
+* `--as` is the wire name the model sees. It defaults to the tool's own name, and exists so two tools sharing a bare name can be told apart within one prompt. It must match `^[a-zA-Z0-9_-]{1,64}$`.
+* `rename` and `remove` take the tool **without** a version: a prompt version pins at most one version of any given tool, so the tool alone identifies the pin.
+* Tools in **another workspace** can be pinned as long as you can read them — that is the point of publishing a tool.
+* `remove` is not the forbidden `unlink`: removing a pin from a draft is a local, one-command-reversible edit that the registry refuses outright on a published version, unlike detaching a prompt from a shared collection.
+
+`version dump` writes the pins to `tools.yaml` as well. That file is **informational** — nothing reads it back. Edit pins with the commands above.
+
+#### What the registry enforces
+
+* Changing pins on a **published** version is rejected; pin against `@draft`.
+* Pinning the same tool twice is rejected — rename the existing pin instead.
+* Two pins cannot share a wire name within one version; the error names the clash and suggests a workspace-qualified alias.
+* **Publishing** a prompt version is rejected while any pinned tool version is still a draft, and making a prompt public is rejected while it pins a non-public tool.
+
 ## What the CLI cannot do — hand back to the human
 
 These operations are intentionally human-only:
@@ -395,7 +491,8 @@ These operations are intentionally human-only:
 * **Publishing a draft** (promoting a prompt **or dataset** draft to a stable version).
 * **Changing visibility** (PUBLIC ↔ PRIVATE) of a prompt, dataset, or collection.
 * **Deleting a collection**, or **removing/unlinking a prompt from a collection** (these are destructive — only `link` is exposed, never an unlink).
-* **Creating or editing tool contracts**, and **changing what a prompt version pins**. The CLI reads pins so `install`/`generate` can type them; authoring them is web-app-only for now.
+* **Publishing a tool version.** The mutation exists, but it is the gate that unblocks publishing every dependent prompt, so it stays with a human — as prompt and dataset publishing does.
+* **Changing a tool's visibility, or deleting a tool.** Going private can strand published prompts in other workspaces; deletion is destructive and cross-workspace.
 * **Configuring AI provider credentials** (adding or removing API keys). The CLI can *list* a workspace's providers (`workspace providers @workspace`) so you know what an eval can run against, but never add or change them.
 
 When a draft or collection is ready for any of these, stop and summarise what changed. Tell the user to act via the web UI when they're ready. Do not look for or attempt to use a `publish`, `visibility`, `delete`-collection, `unlink`, or provider-credential command — they intentionally do not exist on the CLI.
@@ -443,6 +540,10 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Set model config | `sufleur version set-model-config @workspace/name@draft --provider anthropic --model NAME [--params '{...}']` (or `--from-file ./model-config.yaml`) |
 | Read README | `sufleur version get-readme @workspace/name@version` |
 | Set README | `sufleur version set-readme @workspace/name@draft [--content STR \| --file PATH]` |
+| List pinned tools | `sufleur version tools list @workspace/name@version` |
+| Pin a tool | `sufleur version tools add @workspace/name@draft @workspace/tool@^1.0.0 [--as NAME]` |
+| Rename a pin's wire name | `sufleur version tools rename @workspace/name@draft @workspace/tool --as NAME` |
+| Remove a pin | `sufleur version tools remove @workspace/name@draft @workspace/tool` |
 | List files | `sufleur file list @workspace/name@draft` |
 | Create file | `sufleur file create @workspace/name@draft --file ./welcome.mustache` |
 | Update file | `sufleur file update @workspace/name@draft --name welcome --file ./welcome.mustache` |
@@ -468,6 +569,21 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Link prompt to collection | `sufleur collection link @workspace/+name @workspace/prompt [--force]` |
 | Set collection README | `sufleur collection set-readme @workspace/+name [--content STR \| --file PATH]` |
 | Set collection description | `sufleur collection set-description @workspace/+name [--content STR \| --file PATH]` |
+| List tools | `sufleur tool list @workspace [--search ...]` |
+| Inspect tool | `sufleur tool get @workspace/name` |
+| Create tool | `sufleur tool create @workspace/name --description "..."` |
+| Update tool blurb | `sufleur tool update @workspace/name --description "..."` |
+| Dump tool version | `sufleur tool dump @workspace/name@version --to ./dir [--force]` |
+| New tool draft | `sufleur tool version draft @workspace/name` |
+| List tool versions | `sufleur tool version list @workspace/name [--status DRAFT\|PUBLISHED]` |
+| Inspect tool version | `sufleur tool version get @workspace/name@version` |
+| Delete tool draft | `sufleur tool version delete @workspace/name@draft` |
+| Set model description | `sufleur tool version set-description @workspace/name@draft [--content STR \| --file PATH]` |
+| Set tool README | `sufleur tool version set-readme @workspace/name@draft [--content STR \| --file PATH]` |
+| Set tool metadata | `sufleur tool version set-metadata @workspace/name@draft [--from-file PATH \| --string K=V \| --delete K]` |
+| Get tool schema | `sufleur tool schema get @workspace/name@version [--output] [--file PATH]` |
+| Set tool schema | `sufleur tool schema set @workspace/name@draft [--output] --file schema.json` |
+| Clear tool output schema | `sufleur tool schema set @workspace/name@draft --output --clear` |
 | List datasets | `sufleur dataset list @workspace [--search ... --limit ... --offset ...]` |
 | Inspect dataset | `sufleur dataset get @workspace/name` |
 | Create dataset | `sufleur dataset create @workspace/name --description "..."` |

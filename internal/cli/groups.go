@@ -41,6 +41,7 @@ func init() {
 	}
 	promptCmd.AddCommand(promptCreateCmd, promptUpdateCmd, promptListCmd, promptGetCmd, promptRenderCmd)
 	versionCmd.AddCommand(
+		versionToolsCmd,
 		versionDraftCmd,
 		versionDeleteCmd,
 		versionListCmd,

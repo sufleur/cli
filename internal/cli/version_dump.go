@@ -27,6 +27,8 @@ var versionDumpCmd = &cobra.Command{
   <dir>/model-config.yaml     provider/model/parameters; omitted if no model config is set
   <dir>/eval.yaml             the version's eval config as YAML; always written
                               (a complete skeleton if no eval is configured)
+  <dir>/tools.yaml            the tool contracts this version pins; always written
+                              (informational — edit pins with "version tools")
 
 The directory is created if it doesn't exist. Pass --force to overwrite a
 non-empty directory; otherwise dump aborts if the target already has files.`,
@@ -73,7 +75,17 @@ non-empty directory; otherwise dump aborts if the target already has files.`,
 			return err
 		}
 
-		if err := writeDump(dir, v, evalYAML); err != nil {
+		// Fetched before any disk write, like the eval YAML above.
+		pins, err := client.GetPromptVersionTools(cmd.Context(), ref.Workspace, ref.Name, ref.Version)
+		if err != nil {
+			if errors.Is(err, userapi.ErrBearerRejected) {
+				return fmt.Errorf("stored credentials are no longer valid — run `sufleur login` again")
+			}
+			return err
+		}
+
+		filesWritten, err := writeDump(dir, v, evalYAML, pins)
+		if err != nil {
 			return err
 		}
 
@@ -87,22 +99,9 @@ non-empty directory; otherwise dump aborts if the target already has files.`,
 				"metadataKeys":    len(v.Metadata),
 				"hasModelConfig":  v.ModelConfig != nil,
 				"evalBytes":       len(evalYAML),
+				"tools":           len(pins),
+				"filesWritten":    filesWritten,
 			})
-		}
-
-		// Count all files written: prompt files + README.md + metadata.yaml + eval.yaml
-		// + optional output-schema.json and model-config.yaml
-		//
-		// This count is derived independently of writeDump rather than returned by
-		// it, so it must be kept in sync by hand: any file writeDump starts or
-		// stops writing needs a matching change here (and to the
-		// "always-written" / optional lists above).
-		filesWritten := len(v.Files) + 3 // prompt files + 3 always-written files
-		if v.OutputSchema != nil {
-			filesWritten++
-		}
-		if v.ModelConfig != nil {
-			filesWritten++
 		}
 
 		fmt.Fprintf(cmd.OutOrStdout(), "Dumped @%s/%s@%s to %s (%d files)\n",
@@ -130,50 +129,58 @@ func prepareDumpDir(dir string, force bool) error {
 	return nil
 }
 
-func writeDump(dir string, v *userapi.PromptVersion, evalYAML string) error {
+// writeDump writes the version to dir and returns how many files it wrote.
+// The count is returned rather than derived by the caller so the two cannot
+// drift when a file is added or removed.
+func writeDump(dir string, v *userapi.PromptVersion, evalYAML string, pins []userapi.PromptToolPin) (int, error) {
+	written := 0
 	filesDir := filepath.Join(dir, "files")
 	if err := os.MkdirAll(filesDir, 0o755); err != nil {
-		return fmt.Errorf("creating %s: %w", filesDir, err)
+		return 0, fmt.Errorf("creating %s: %w", filesDir, err)
 	}
 	for _, f := range v.Files {
 		if strings.ContainsAny(f.Name, "/\\") {
-			return fmt.Errorf("file name %q contains a path separator; refusing to write", f.Name)
+			return 0, fmt.Errorf("file name %q contains a path separator; refusing to write", f.Name)
 		}
 		path := filepath.Join(filesDir, f.Name+".mustache")
 		if err := os.WriteFile(path, []byte(f.Content), 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", path, err)
+			return 0, fmt.Errorf("writing %s: %w", path, err)
 		}
+		written++
 	}
 
 	if v.OutputSchema != nil {
 		schemaPath := filepath.Join(dir, "output-schema.json")
 		raw, err := json.MarshalIndent(v.OutputSchema, "", "  ")
 		if err != nil {
-			return fmt.Errorf("encoding output schema: %w", err)
+			return 0, fmt.Errorf("encoding output schema: %w", err)
 		}
 		raw = append(raw, '\n')
 		if err := os.WriteFile(schemaPath, raw, 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", schemaPath, err)
+			return 0, fmt.Errorf("writing %s: %w", schemaPath, err)
 		}
+		written++
 	}
 
 	readmePath := filepath.Join(dir, "README.md")
 	if err := os.WriteFile(readmePath, []byte(v.Readme), 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", readmePath, err)
+		return 0, fmt.Errorf("writing %s: %w", readmePath, err)
 	}
+	written++
 
 	metadataPath := filepath.Join(dir, "metadata.yaml")
 	flat := flattenMetadata(v.Metadata)
 	raw, err := yaml.Marshal(flat)
 	if err != nil {
-		return fmt.Errorf("encoding metadata: %w", err)
+		return 0, fmt.Errorf("encoding metadata: %w", err)
 	}
 	if len(flat) == 0 {
 		raw = []byte("{}\n")
 	}
 	if err := os.WriteFile(metadataPath, raw, 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", metadataPath, err)
+		return 0, fmt.Errorf("writing %s: %w", metadataPath, err)
 	}
+	written++
 
 	if v.ModelConfig != nil {
 		modelConfigPath := filepath.Join(dir, "model-config.yaml")
@@ -183,11 +190,12 @@ func writeDump(dir string, v *userapi.PromptVersion, evalYAML string) error {
 			Parameters: v.ModelConfig.Parameters,
 		})
 		if err != nil {
-			return fmt.Errorf("encoding model config: %w", err)
+			return 0, fmt.Errorf("encoding model config: %w", err)
 		}
 		if err := os.WriteFile(modelConfigPath, raw, 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", modelConfigPath, err)
+			return 0, fmt.Errorf("writing %s: %w", modelConfigPath, err)
 		}
+		written++
 	}
 
 	evalPath := filepath.Join(dir, "eval.yaml")
@@ -196,9 +204,39 @@ func writeDump(dir string, v *userapi.PromptVersion, evalYAML string) error {
 		evalRaw = append(evalRaw, '\n')
 	}
 	if err := os.WriteFile(evalPath, evalRaw, 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", evalPath, err)
+		return 0, fmt.Errorf("writing %s: %w", evalPath, err)
 	}
-	return nil
+	written++
+
+	// Always written, like README.md and metadata.yaml, so its absence never
+	// has to be distinguished from "this version pins nothing". Informational:
+	// the pins are edited with `version tools`, not by editing this file.
+	toolsPath := filepath.Join(dir, "tools.yaml")
+	toolsRaw, err := yaml.Marshal(map[string]any{"tools": dumpedPins(pins)})
+	if err != nil {
+		return 0, fmt.Errorf("encoding tools: %w", err)
+	}
+	if err := os.WriteFile(toolsPath, toolsRaw, 0o644); err != nil {
+		return 0, fmt.Errorf("writing %s: %w", toolsPath, err)
+	}
+	written++
+
+	return written, nil
+}
+
+// dumpedPins renders the pins for tools.yaml. An empty list marshals as
+// "tools: []" rather than "tools: null".
+func dumpedPins(pins []userapi.PromptToolPin) []map[string]any {
+	out := make([]map[string]any, 0, len(pins))
+	for _, p := range pins {
+		out = append(out, map[string]any{
+			"alias":   p.Alias,
+			"ref":     p.ToolVersion.Tool.Ref(),
+			"version": p.ToolVersion.Version,
+			"status":  p.ToolVersion.Status,
+		})
+	}
+	return out
 }
 
 // flattenMetadata unwraps the backend's {type, value} wrappers so the dumped
