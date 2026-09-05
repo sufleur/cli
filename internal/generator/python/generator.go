@@ -62,11 +62,38 @@ type promptTemplateData struct {
 	OutputClassName     string
 	OutputSchemaRaw     string
 	ModelConfigRaw      string
+	HasTools            bool
+	ToolsTypeName       string
+	ToolBindings        []toolBindingData
+	ToolDefsRaw         string
+	DraftTools          []string
 }
 
 type partialData struct {
 	Name    string
 	Content string
+}
+
+// toolTemplateData is one distinct pinned contract, emitted once however many
+// prompts pin it. Input comes from the model so it is a validating pydantic
+// model; output comes from the engineer's own code so a TypedDict is enough.
+type toolTemplateData struct {
+	BaseName       string
+	InputModel     string // pydantic class source
+	InputClassName string
+	OutputDicts    []typedDictClass
+	OutputTypeName string
+	Ref            string
+	Version        string
+}
+
+// toolBindingData is one pin as seen by a single prompt.
+type toolBindingData struct {
+	Alias          string
+	SafeAlias      string // a valid Python identifier, for local variable names
+	BaseName       string
+	InputClassName string
+	IsDraft        bool
 }
 
 type templateContext struct {
@@ -76,6 +103,10 @@ type templateContext struct {
 	AnyHasOptional    bool
 	AnyHasUnion       bool
 	AnyHasModelConfig bool
+	AnyHasTools       bool
+	AnyDraftTools     bool
+	AnyDraftPrompts   bool
+	Tools             []toolTemplateData
 	FencePattern      string
 }
 
@@ -93,7 +124,10 @@ func (g *Generator) Generate(outFile string, prompts []generator.PromptData) err
 		}
 	}
 
-	data := buildTemplateData(prompts)
+	data, err := buildTemplateData(prompts)
+	if err != nil {
+		return err
+	}
 
 	tmpl, err := template.New("output").Funcs(template.FuncMap{
 		"pyMetadataValue": pyMetadataValue,
@@ -125,14 +159,21 @@ func displayName(p generator.PromptData) string {
 	return p.Name
 }
 
-func buildTemplateData(prompts []generator.PromptData) templateContext {
+func buildTemplateData(prompts []generator.PromptData) (templateContext, error) {
 	sort.Slice(prompts, func(i, j int) bool {
 		return displayName(prompts[i]) < displayName(prompts[j])
 	})
 
+	plan, err := generator.PlanTools(prompts)
+	if err != nil {
+		return templateContext{}, err
+	}
+
 	var tds []promptTemplateData
 	anyHasOutput := false
 	anyHasModelConfig := false
+	anyDraftTools := false
+	anyDraftPrompts := false
 	anyAnalysis := inputAnalysis{}
 	for _, p := range prompts {
 		dn := displayName(p)
@@ -216,18 +257,173 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 			Fields: metaFields,
 		})
 
+		// Tool pins, sorted by wire name so the emitted bindings and dispatch
+		// branches do not depend on the order the backend returned them in.
+		for _, pin := range p.Tools {
+			key := generator.ToolKey(pin)
+			td.ToolBindings = append(td.ToolBindings, toolBindingData{
+				Alias:          pin.Alias,
+				SafeAlias:      safePyIdent(pin.Alias),
+				BaseName:       plan.BaseNames[key],
+				InputClassName: plan.BaseNames[key] + "Input",
+				IsDraft:        pin.Status == "DRAFT",
+			})
+		}
+		sort.Slice(td.ToolBindings, func(i, j int) bool {
+			return td.ToolBindings[i].Alias < td.ToolBindings[j].Alias
+		})
+		if p.Status == "DRAFT" {
+			anyDraftPrompts = true
+		}
+		td.HasTools = len(td.ToolBindings) > 0
+		td.ToolsTypeName = td.PascalName + "Tools"
+		td.DraftTools = generator.DraftToolAliases(p)
+		if len(td.DraftTools) > 0 {
+			anyDraftTools = true
+		}
+		if td.HasTools {
+			td.ToolDefsRaw = toolDefsLiteral(p.Tools)
+		}
+
 		tds = append(tds, td)
 	}
 
-	return templateContext{
+	tools := make([]toolTemplateData, 0, len(plan.Keys))
+	for _, key := range plan.Keys {
+		pin := plan.Pins[key]
+		base := plan.BaseNames[key]
+
+		inputModel, inputClass := jsonSchemaToPydantic(pin.InputSchema, base+"Input")
+
+		outputTypeName := "Any"
+		var outputDicts []typedDictClass
+		if pin.OutputSchema != nil {
+			outputTypeName = collectTypedDicts(pin.OutputSchema, base+"Output", &outputDicts, true, &anyAnalysis)
+		}
+
+		tools = append(tools, toolTemplateData{
+			BaseName:       base,
+			InputModel:     inputModel,
+			InputClassName: inputClass,
+			OutputDicts:    outputDicts,
+			OutputTypeName: outputTypeName,
+			Ref:            pin.Ref,
+			Version:        pin.Version,
+		})
+	}
+
+	ctx := templateContext{
 		Timestamp:         time.Now().UTC().Format(time.RFC3339),
 		Prompts:           tds,
 		AnyHasOutput:      anyHasOutput,
 		AnyHasOptional:    anyAnalysis.HasOptional,
 		AnyHasUnion:       anyAnalysis.HasUnion,
 		AnyHasModelConfig: anyHasModelConfig,
+		AnyHasTools:       len(tools) > 0,
+		AnyDraftTools:     anyDraftTools,
+		AnyDraftPrompts:   anyDraftPrompts,
+		Tools:             tools,
 		FencePattern:      parser.FencePattern,
 	}
+	if err := assertNoIdentifierCollisions(ctx); err != nil {
+		return templateContext{}, err
+	}
+	return ctx, nil
+}
+
+// toolDefsLiteral renders the provider-neutral definitions the model is offered,
+// as a JSON string the generated module parses once at import time. A Python
+// literal would need every JSON true/false/null rewritten; json.loads does not.
+func toolDefsLiteral(pins []generator.ToolPin) string {
+	sorted := make([]generator.ToolPin, len(pins))
+	copy(sorted, pins)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Alias < sorted[j].Alias })
+
+	defs := make([]map[string]interface{}, 0, len(sorted))
+	for _, pin := range sorted {
+		defs = append(defs, map[string]interface{}{
+			"name":         pin.Alias,
+			"description":  generator.WireDescription(pin),
+			"input_schema": pin.InputSchema,
+		})
+	}
+	raw, err := json.Marshal(defs)
+	if err != nil {
+		return "[]"
+	}
+	return pyStringLiteral(string(raw))
+}
+
+// safePyIdent turns a wire name into a valid Python identifier for use as a
+// local variable. Wire names may be kebab-case, which identifiers may not be.
+func safePyIdent(alias string) string {
+	var b strings.Builder
+	for i, r := range alias {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9' && i > 0:
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "_tool"
+	}
+	return b.String()
+}
+
+// assertNoIdentifierCollisions catches a tool whose generated names clash with
+// a prompt's. `@ws/web-search` yields `WsWebSearchToolOutput`, and so does a
+// prompt named `@ws/web-search-tool`; emitting both produces a module whose
+// later definition silently wins.
+func assertNoIdentifierCollisions(ctx templateContext) error {
+	owner := map[string]string{}
+	claim := func(ident, by string) error {
+		if prev, taken := owner[ident]; taken && prev != by {
+			return fmt.Errorf(
+				"%s and %s both generate the identifier %q; rename one of them, or install the prompt under a different alias (sufleur add --alias)",
+				prev, by, ident)
+		}
+		owner[ident] = by
+		return nil
+	}
+
+	for _, p := range ctx.Prompts {
+		by := "prompt " + p.Name
+		for _, dict := range p.TypedDicts {
+			if err := claim(dict.Name, by); err != nil {
+				return err
+			}
+		}
+		if p.HasOutputSchema {
+			if err := claim(p.OutputClassName, by); err != nil {
+				return err
+			}
+		}
+		if p.HasTools {
+			if err := claim(p.ToolsTypeName, by); err != nil {
+				return err
+			}
+		}
+	}
+
+	for _, tool := range ctx.Tools {
+		by := "tool " + tool.Ref + "@" + tool.Version
+		if err := claim(tool.BaseName, by); err != nil {
+			return err
+		}
+		if err := claim(tool.InputClassName, by); err != nil {
+			return err
+		}
+		for _, dict := range tool.OutputDicts {
+			if err := claim(dict.Name, by); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // collectTypedDicts recursively walks a JSON Schema and emits TypedDict classes.
@@ -394,31 +590,9 @@ func unionToPythonType(union interface{}, namePrefix string, classes *[]typedDic
 	return base
 }
 
-// toPascalCase converts kebab-case, snake_case, or @workspace/name to PascalCase.
-func toPascalCase(s string) string {
-	var b strings.Builder
-	upper := true
-	for _, r := range s {
-		if r == '-' || r == '_' || r == '@' || r == '/' {
-			upper = true
-			continue
-		}
-		if upper {
-			b.WriteRune(toUpper(r))
-			upper = false
-		} else {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-func toUpper(r rune) rune {
-	if r >= 'a' && r <= 'z' {
-		return r - 32
-	}
-	return r
-}
+// toPascalCase delegates to the shared implementation so prompt and tool
+// identifiers are derived identically by both generators.
+func toPascalCase(s string) string { return generator.ToPascalCase(s) }
 
 // escapeForPythonString escapes special characters for use inside a Python double-quoted string.
 func escapeForPythonString(s string) string {
@@ -568,24 +742,26 @@ var pythonTemplate = `# ⚠️ AUTO-GENERATED by Sufleur CLI — do not edit man
 #
 # Runtime peer dependencies (install in your project):
 #   pip install chevron
-{{- if .AnyHasOutput}}
+{{- if or .AnyHasOutput .AnyHasTools}}
 #   pip install pydantic
 {{- end}}
 
 from __future__ import annotations
 
 import warnings
-from typing import Any, Literal, TypedDict, overload{{if or .AnyHasOutput .AnyHasUnion .AnyHasOptional}}, Optional, Union{{end}}
+from typing import Any, Literal, TypedDict, overload{{if or .AnyHasOutput .AnyHasUnion .AnyHasOptional .AnyHasTools}}, Optional, Union{{end}}{{if .AnyHasTools}}, Protocol{{end}}
 {{- if .AnyHasOptional}}
 from typing_extensions import NotRequired
 {{- end}}
 
 import chevron
-{{- if or .AnyHasOutput .AnyHasModelConfig}}
+{{- if or .AnyHasOutput .AnyHasModelConfig .AnyHasTools}}
 import json
 {{- end}}
 {{- if .AnyHasOutput}}
 import re
+{{- end}}
+{{- if or .AnyHasOutput .AnyHasTools}}
 from pydantic import BaseModel, ValidationError
 {{- end}}
 
@@ -739,15 +915,111 @@ def _extract_json_candidate(raw: str) -> tuple[str, bool]:
     return (trimmed, False)
 {{- end}}
 
+{{if .AnyHasTools}}# ─── Tool Contracts ───────────────────────────────────────────────────────────
+#
+# The trust boundary runs the opposite way from prompt I/O: a tool's arguments
+# are written by the model, so they are validated at runtime, while a tool's
+# result comes from your own code, so a static type is enough.
+{{range .Tools}}
+
+{{.InputModel}}
+{{- range .OutputDicts}}
+
+class {{.Name}}(TypedDict):
+{{- range .Fields}}
+    {{.Name}}: {{.Type}}
+    {{- if .Description}}
+    """{{pyDocstring .Description}}"""
+    {{- end}}
+{{- end}}
+{{- end}}
+
+class {{.BaseName}}(Protocol):
+    """Implement this to bind {{.Ref}}@{{.Version}}."""
+
+    def __call__(self, input: {{.InputClassName}}) -> {{.OutputTypeName}}: ...
+{{end}}
+
+class ToolExecutionError(Exception):
+    """Raise from a tool implementation to report a failure the model may see."""
+
+
+class _DispatchSuccess(TypedDict):
+    content: str
+    success: Literal[True]
+
+
+class DispatchFailure(TypedDict):
+    error: str
+    code: Literal["unknown-tool", "input-validation", "execution"]
+    success: Literal[False]
+
+# Bindings per prompt, in functional syntax because wire names may be
+# kebab-case, which is not a valid identifier. Every key is required — the model
+# is offered every pinned tool, so an implementation for each has to be supplied.
+{{range .Prompts}}
+{{- if .HasTools}}
+{{.ToolsTypeName}} = TypedDict("{{.ToolsTypeName}}", {
+{{- range .ToolBindings}}
+    "{{.Alias}}": {{.BaseName}},
+{{- end}}
+})
+
+{{end}}
+{{- end}}
+# ─── Tool Definitions ─────────────────────────────────────────────────────────
+#
+# Provider-neutral {name, description, input_schema}; adapt them if your SDK's
+# tool format differs.
+
+_tool_defs: dict[str, list[dict[str, Any]]] = {
+{{- range .Prompts}}
+{{- if .HasTools}}
+    "{{.Name}}": json.loads({{.ToolDefsRaw}}),
+{{- end}}
+{{- end}}
+}
+
+# Argument validators, looked up at dispatch time. The typed per-prompt classes
+# below exist for the type checker; get_prompt returns the dynamic result object,
+# so this is what actually validates what the model sent.
+_tool_input_models: dict[str, dict[str, type[BaseModel]]] = {
+{{- range .Prompts}}
+{{- if .HasTools}}
+    "{{.Name}}": {
+{{- range .ToolBindings}}
+        "{{.Alias}}": {{.InputClassName}},
+{{- end}}
+    },
+{{- end}}
+{{- end}}
+}
+{{- if .AnyDraftTools}}
+
+# Pins on unpublished tool versions: the contract can still change under you.
+_draft_tools: dict[str, list[str]] = {
+{{- range .Prompts}}
+{{- if .DraftTools}}
+    "{{.Name}}": [{{range $i, $a := .DraftTools}}{{if $i}}, {{end}}"{{$a}}"{{end}}],
+{{- end}}
+{{- end}}
+}
+{{- end}}
+
+{{end -}}
 # ─── Draft Prompts ────────────────────────────────────────────────────────────
 
-_draft_prompts: set[str] = {
+{{if .AnyDraftPrompts}}_draft_prompts: set[str] = {
 {{- range .Prompts}}
 {{- if eq .Status "DRAFT"}}
     "{{.Name}}",
 {{- end}}
 {{- end}}
 }
+{{- else}}
+# No draft prompts installed. Spelled set() rather than {}, which is a dict.
+_draft_prompts: set[str] = set()
+{{- end}}
 
 # ─── Per-prompt result types ─────────────────────────────────────────────────
 {{range .Prompts}}
@@ -792,6 +1064,39 @@ class _{{.PascalName}}Result:
             return {"error": str(e), "code": "schema-validation", "success": False}
         return {"data": validated, "success": True}
     {{- end}}
+    {{- if .HasTools}}
+
+    def tool_defs(self) -> list[dict[str, Any]]:
+        """Provider-neutral definitions for every tool this prompt pins."""
+        return list(_tool_defs["{{.Name}}"])
+
+    def dispatch_tool(
+        self, name: str, raw_input: Any, tools: {{.ToolsTypeName}}
+    ) -> _DispatchSuccess | DispatchFailure:
+        """Validate the model's arguments and invoke the bound implementation.
+
+        Deliberately not a loop: call it once per tool_use block the model emits.
+        """
+        {{- range .ToolBindings}}
+        if name == "{{.Alias}}":
+            try:
+                {{.SafeAlias}}_input = {{.InputClassName}}.model_validate(raw_input)
+            except ValidationError as e:
+                return {"error": str(e), "code": "input-validation", "success": False}
+            try:
+                {{.SafeAlias}}_output = tools["{{.Alias}}"]({{.SafeAlias}}_input)
+            except ToolExecutionError as e:
+                # Only ToolExecutionError is reported back to the model; anything
+                # else is a bug in the implementation and keeps its traceback.
+                return {"error": str(e), "code": "execution", "success": False}
+            return {"content": json.dumps({{.SafeAlias}}_output), "success": True}
+        {{- end}}
+        return {
+            "error": f'Unknown tool "{name}" for prompt "{{.Name}}"',
+            "code": "unknown-tool",
+            "success": False,
+        }
+    {{- end}}
 {{end}}
 
 # ─── Overloads + implementation ──────────────────────────────────────────────
@@ -811,6 +1116,15 @@ def get_prompt(prompt_name: PromptName) -> Any:
             f'[sufleur] Warning: prompt "{prompt_name}" is a draft version',
             stacklevel=2,
         )
+{{- if .AnyDraftTools}}
+    _pinned_drafts = _draft_tools.get(prompt_name)
+    if _pinned_drafts:
+        warnings.warn(
+            f'[sufleur] Warning: prompt "{prompt_name}" pins draft tool version(s): '
+            + ", ".join(_pinned_drafts),
+            stacklevel=2,
+        )
+{{- end}}
 
     templates = _templates[prompt_name]
     partials = _partials.get(prompt_name, {})
@@ -842,6 +1156,31 @@ def get_prompt(prompt_name: PromptName) -> Any:
             except ValidationError as e:
                 return {"error": str(e), "code": "schema-validation", "success": False}
             return {"data": validated, "success": True}
+{{- end}}{{- if .AnyHasTools}}
+
+        def tool_defs(self) -> list[dict[str, Any]]:
+            return list(_tool_defs.get(prompt_name, []))
+
+        def dispatch_tool(self, name: str, raw_input: Any, tools: Any) -> dict[str, Any]:
+            model = _tool_input_models.get(prompt_name, {}).get(name)
+            impl = tools.get(name) if isinstance(tools, dict) else None
+            if model is None or impl is None:
+                return {
+                    "error": f'Unknown tool "{name}" for prompt "{prompt_name}"',
+                    "code": "unknown-tool",
+                    "success": False,
+                }
+            try:
+                validated = model.model_validate(raw_input)
+            except ValidationError as e:
+                return {"error": str(e), "code": "input-validation", "success": False}
+            try:
+                output = impl(validated)
+            except ToolExecutionError as e:
+                # Only ToolExecutionError is reported back to the model; anything
+                # else is a bug in the implementation and keeps its traceback.
+                return {"error": str(e), "code": "execution", "success": False}
+            return {"content": json.dumps(output), "success": True}
 {{- end}}
 
     return _PromptResult()

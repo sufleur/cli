@@ -54,6 +54,10 @@ var updateCmd = &cobra.Command{
 			fmt.Printf("  %s@%s (%s)\n", e.Alias, e.Version, status)
 		}
 
+		for _, w := range result.DraftWarnings {
+			fmt.Printf("  warning: %s\n", w)
+		}
+
 		fmt.Printf("\nUpdated %d prompt(s).\n", len(result.Entries))
 		return nil
 	},

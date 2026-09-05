@@ -45,6 +45,9 @@ type promptTemplateData struct {
 	OutputSchemaZod string
 	OutputSchemaRaw string
 	ModelConfigRaw  string
+	HasTools        bool
+	ToolBindings    []toolBindingData
+	DraftTools      []string
 }
 
 type partialData struct {
@@ -52,11 +55,35 @@ type partialData struct {
 	Content string
 }
 
+// toolTemplateData is one distinct pinned contract, emitted once however many
+// prompts pin it. Input comes from the model so it gets a runtime validator;
+// output comes from the engineer's own code so a static type is enough.
+type toolTemplateData struct {
+	BaseName   string
+	InputZod   string
+	OutputType string
+	Ref        string
+	Version    string
+	IsDraft    bool
+}
+
+// toolBindingData is one pin as seen by a single prompt: the wire name the
+// model emits, and the contract it resolves to.
+type toolBindingData struct {
+	Alias    string
+	BaseName string
+	WireDef  string // JSON literal for { name, description, input_schema }
+	IsDraft  bool
+}
+
 type templateContext struct {
-	Timestamp    string
-	Prompts      []promptTemplateData
-	AnyHasOutput bool
-	FencePattern string
+	Timestamp     string
+	Prompts       []promptTemplateData
+	AnyHasOutput  bool
+	AnyHasTools   bool
+	AnyDraftTools bool
+	Tools         []toolTemplateData
+	FencePattern  string
 }
 
 func (g *Generator) Generate(outFile string, prompts []generator.PromptData) error {
@@ -66,7 +93,10 @@ func (g *Generator) Generate(outFile string, prompts []generator.PromptData) err
 		}
 	}
 
-	data := buildTemplateData(prompts)
+	data, err := buildTemplateData(prompts)
+	if err != nil {
+		return err
+	}
 
 	tmpl, err := template.New("output").Funcs(template.FuncMap{
 		"tsMetadataValue": tsMetadataValue,
@@ -97,13 +127,19 @@ func displayName(p generator.PromptData) string {
 	return p.Name
 }
 
-func buildTemplateData(prompts []generator.PromptData) templateContext {
+func buildTemplateData(prompts []generator.PromptData) (templateContext, error) {
 	sort.Slice(prompts, func(i, j int) bool {
 		return displayName(prompts[i]) < displayName(prompts[j])
 	})
 
+	plan, err := generator.PlanTools(prompts)
+	if err != nil {
+		return templateContext{}, err
+	}
+
 	var tds []promptTemplateData
 	anyHasOutput := false
+	anyDraftTools := false
 	for _, p := range prompts {
 		dn := displayName(p)
 		td := promptTemplateData{
@@ -163,42 +199,125 @@ func buildTemplateData(prompts []generator.PromptData) templateContext {
 			}
 		}
 
+		// Tool pins. Sorted by wire name so the emitted bindings and dispatch
+		// branches do not depend on the order the backend returned them in.
+		for _, pin := range p.Tools {
+			td.ToolBindings = append(td.ToolBindings, toolBindingData{
+				Alias:    pin.Alias,
+				BaseName: plan.BaseNames[generator.ToolKey(pin)],
+				WireDef:  wireDefLiteral(pin),
+				IsDraft:  pin.Status == "DRAFT",
+			})
+		}
+		sort.Slice(td.ToolBindings, func(i, j int) bool {
+			return td.ToolBindings[i].Alias < td.ToolBindings[j].Alias
+		})
+		td.HasTools = len(td.ToolBindings) > 0
+		td.DraftTools = generator.DraftToolAliases(p)
+		if len(td.DraftTools) > 0 {
+			anyDraftTools = true
+		}
+
 		tds = append(tds, td)
 	}
 
-	return templateContext{
-		Timestamp:    time.Now().UTC().Format(time.RFC3339),
-		Prompts:      tds,
-		AnyHasOutput: anyHasOutput,
-		FencePattern: parser.FencePattern,
+	tools := make([]toolTemplateData, 0, len(plan.Keys))
+	for _, key := range plan.Keys {
+		pin := plan.Pins[key]
+		outputType := "unknown"
+		if pin.OutputSchema != nil {
+			outputType = schemaToTSType(pin.OutputSchema, 0)
+		}
+		tools = append(tools, toolTemplateData{
+			BaseName:   plan.BaseNames[key],
+			InputZod:   jsonSchemaToZod(pin.InputSchema, 0),
+			OutputType: outputType,
+			Ref:        pin.Ref,
+			Version:    pin.Version,
+			IsDraft:    pin.Status == "DRAFT",
+		})
 	}
+
+	ctx := templateContext{
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		Prompts:       tds,
+		AnyHasOutput:  anyHasOutput,
+		AnyHasTools:   len(tools) > 0,
+		AnyDraftTools: anyDraftTools,
+		Tools:         tools,
+		FencePattern:  parser.FencePattern,
+	}
+	if err := assertNoIdentifierCollisions(ctx); err != nil {
+		return templateContext{}, err
+	}
+	return ctx, nil
 }
 
-// toPascalCase converts kebab-case, snake_case, or @workspace/name to PascalCase.
-func toPascalCase(s string) string {
-	var b strings.Builder
-	upper := true
-	for _, r := range s {
-		if r == '-' || r == '_' || r == '@' || r == '/' {
-			upper = true
-			continue
-		}
-		if upper {
-			b.WriteRune(toUpper(r))
-			upper = false
-		} else {
-			b.WriteRune(r)
-		}
+// wireDefLiteral renders the provider-neutral tool definition the model is
+// offered: the wire name, the description (with the output schema appended by
+// WireDescription), and the argument schema verbatim.
+func wireDefLiteral(pin generator.ToolPin) string {
+	def := map[string]interface{}{
+		"name":         pin.Alias,
+		"description":  generator.WireDescription(pin),
+		"input_schema": pin.InputSchema,
 	}
-	return b.String()
+	raw, err := json.MarshalIndent(def, "    ", "  ")
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
 }
 
-func toUpper(r rune) rune {
-	if r >= 'a' && r <= 'z' {
-		return r - 32
+// assertNoIdentifierCollisions catches a tool whose generated names clash with
+// a prompt's. `@ws/web-search` yields `WsWebSearchToolOutput`, and so does a
+// prompt named `@ws/web-search-tool` — emitting both would produce a file that
+// does not compile, with a confusing error a long way from the cause.
+func assertNoIdentifierCollisions(ctx templateContext) error {
+	owner := map[string]string{}
+	claim := func(ident, by string) error {
+		if prev, taken := owner[ident]; taken && prev != by {
+			return fmt.Errorf(
+				"%s and %s both generate the identifier %q; rename one of them, or install the prompt under a different alias (sufleur add --alias)",
+				prev, by, ident)
+		}
+		owner[ident] = by
+		return nil
 	}
-	return r
+
+	for _, p := range ctx.Prompts {
+		by := "prompt " + p.Name
+		if p.HasOutputSchema {
+			if err := claim(p.PascalName+"Output", by); err != nil {
+				return err
+			}
+			if err := claim(p.PascalName+"OutputSchema", by); err != nil {
+				return err
+			}
+		}
+		for _, ep := range p.Entrypoints {
+			if ep.HasInput {
+				if err := claim(p.PascalName+"_"+ep.PascalEntry+"Input", by); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	for _, tool := range ctx.Tools {
+		by := "tool " + tool.Ref + "@" + tool.Version
+		for _, suffix := range []string{"", "Input", "Output", "InputSchema"} {
+			if err := claim(tool.BaseName+suffix, by); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
+
+// toPascalCase delegates to the shared implementation so prompt and tool
+// identifiers are derived identically by both generators.
+func toPascalCase(s string) string { return generator.ToPascalCase(s) }
 
 // escapeForTSTemplateLiteral escapes backticks and ${ for use inside a JS template literal.
 func escapeForTSTemplateLiteral(s string) string {
@@ -429,12 +548,12 @@ var indexTemplate = `// ⚠️ AUTO-GENERATED by Sufleur CLI — do not edit man
 // Runtime peer dependencies (install in your project):
 //   npm i mustache
 //   npm i -D @types/mustache
-{{- if .AnyHasOutput}}
+{{- if or .AnyHasOutput .AnyHasTools}}
 //   npm i zod
 {{- end}}
 
 import Mustache from 'mustache';
-{{- if .AnyHasOutput}}
+{{- if or .AnyHasOutput .AnyHasTools}}
 import { z } from 'zod';
 {{- end}}
 
@@ -466,6 +585,49 @@ export type ParseResult<T> =
 export interface OutputMapping {
 {{- range .Prompts}}
   '{{.Name}}': {{if .HasOutputSchema}}{{.PascalName}}Output{{else}}never{{end}};
+{{- end}}
+}
+
+{{end -}}
+{{if .AnyHasTools}}// ─── Tool Contracts ──────────────────────────────────────────────────────────
+//
+// The trust boundary runs the opposite way from prompt I/O: a tool's arguments
+// are written by the model, so they are validated at runtime, while a tool's
+// result comes from your own code, so a static type is enough.
+{{range .Tools}}
+export const {{.BaseName}}InputSchema = {{.InputZod}};
+
+export type {{.BaseName}}Input = z.infer<typeof {{.BaseName}}InputSchema>;
+
+export type {{.BaseName}}Output = {{.OutputType}};
+
+export type {{.BaseName}} = (
+  input: {{.BaseName}}Input,
+) => Promise<{{.BaseName}}Output> | {{.BaseName}}Output;
+{{end}}
+/** Throw from a tool implementation to report a failure the model may see. */
+export class ToolExecutionError extends Error {}
+
+/** Provider-neutral tool definition; adapt it if your SDK's shape differs. */
+export interface ToolDef {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+export type DispatchResult =
+  | { success: true; content: string }
+  | { success: false; error: string; code: 'unknown-tool' | 'input-validation' | 'execution' };
+
+// Every pinned tool is required: the model is offered all of them, so an
+// implementation for each one has to be supplied.
+export interface ToolMapping {
+{{- range .Prompts}}
+  '{{.Name}}': {{if .HasTools}}{
+{{- range .ToolBindings}}
+    '{{.Alias}}': {{.BaseName}};
+{{- end}}
+  }{{else}}never{{end}};
 {{- end}}
 }
 
@@ -596,6 +758,44 @@ const _extractJsonCandidate = (raw: string): { text: string; foundFence: boolean
 };
 {{- end}}
 
+{{if .AnyHasTools}}// ─── Tool Definitions ─────────────────────────────────────────────────────────
+
+const _toolDefs: Partial<Record<PromptName, readonly ToolDef[]>> = {
+{{- range .Prompts}}
+{{- if .HasTools}}
+  '{{.Name}}': [
+{{- range .ToolBindings}}
+    {{.WireDef}},
+{{- end}}
+  ],
+{{- end}}
+{{- end}}
+};
+
+const _toolInputSchemas: Partial<Record<PromptName, Record<string, z.ZodType>>> = {
+{{- range .Prompts}}
+{{- if .HasTools}}
+  '{{.Name}}': {
+{{- range .ToolBindings}}
+    '{{.Alias}}': {{.BaseName}}InputSchema,
+{{- end}}
+  },
+{{- end}}
+{{- end}}
+};
+{{- if .AnyDraftTools}}
+
+// Pins on unpublished tool versions: the contract can still change under you.
+const _draftTools: Partial<Record<PromptName, readonly string[]>> = {
+{{- range .Prompts}}
+{{- if .DraftTools}}
+  '{{.Name}}': [{{range $i, $a := .DraftTools}}{{if $i}}, {{end}}'{{$a}}'{{end}}],
+{{- end}}
+{{- end}}
+};
+{{- end}}
+
+{{end -}}
 // ─── Draft Prompts ────────────────────────────────────────────────────────────
 
 const _draftPrompts: Set<string> = new Set([
@@ -607,7 +807,21 @@ const _draftPrompts: Set<string> = new Set([
 ]);
 
 // ─── getPrompt ────────────────────────────────────────────────────────────────
-{{- if .AnyHasOutput}}
+{{- if .AnyHasTools}}
+
+type PromptResult<N extends PromptName> = {
+  render: <E extends keyof EntrypointMapping[N] & string>(
+    entrypoint: E,
+    input: EntrypointMapping[N][E],
+  ) => PromptOutput;
+  metadata: (typeof _metadata)[N];
+}{{if .AnyHasOutput}} & (OutputMapping[N] extends never ? {} : {
+  parseOutput(raw: string): ParseResult<OutputMapping[N]>;
+}){{end}} & (ToolMapping[N] extends never ? {} : {
+  toolDefs(): ToolDef[];
+  dispatchTool(name: string, rawInput: unknown, tools: ToolMapping[N]): Promise<DispatchResult>;
+});
+{{- else if .AnyHasOutput}}
 
 type PromptResult<N extends PromptName> = {
   render: <E extends keyof EntrypointMapping[N] & string>(
@@ -649,7 +863,104 @@ export function getPrompt(promptName: '{{$p.Name}}'): PromptResult<'{{$p.Name}}'
 // the more specific literal overload when the argument is itself a literal,
 // so per-prompt hover docs are unaffected.
 export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N>;
+{{- if .AnyHasTools}}
+export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> {
+  if (_draftPrompts.has(promptName)) {
+    console.warn('[sufleur] Warning: prompt "' + promptName + '" is a draft version');
+  }
+{{- if .AnyDraftTools}}
+  const draftPins = _draftTools[promptName];
+  if (draftPins) {
+    console.warn(
+      '[sufleur] Warning: prompt "' + promptName + '" pins draft tool version(s): ' + draftPins.join(', '),
+    );
+  }
+{{- end}}
+
+  const templates = _templates[promptName];
+  const partials = _partials[promptName] ?? {};
+
+  const render = <E extends keyof EntrypointMapping[N] & string>(
+    entrypoint: E,
+    input: EntrypointMapping[N][E],
+  ): PromptOutput => {
+    const template = templates[entrypoint];
+    if (template === undefined) {
+      throw new Error('[sufleur] Unknown entrypoint "' + entrypoint + '" for prompt "' + promptName + '"');
+    }
+    return { prompt: Mustache.render(template, input ?? {}, partials) };
+  };
+
+  const metadata = _metadata[promptName];
+  const result: Record<string, unknown> = { render, metadata };
 {{- if .AnyHasOutput}}
+
+  const schema = _outputSchemas[promptName];
+  if (schema) {
+    result.parseOutput = (raw: string): ParseResult<OutputMapping[N]> => {
+      const candidate = _extractJsonCandidate(raw);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(candidate.text);
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        return {
+          success: false,
+          error: message,
+          code: candidate.foundFence ? 'fence-extraction' : 'json-parse',
+        };
+      }
+      const validated = schema.safeParse(parsed);
+      if (validated.success) {
+        return { success: true, data: validated.data as OutputMapping[N] };
+      }
+      return { success: false, error: validated.error.message, code: 'schema-validation' };
+    };
+  }
+{{- end}}
+
+  const defs = _toolDefs[promptName];
+  const toolSchemas = _toolInputSchemas[promptName];
+  if (defs && toolSchemas) {
+    result.toolDefs = (): ToolDef[] => [...defs];
+
+    // Validates the arguments the model produced, then calls your binding.
+    // Deliberately not a loop: call it once per tool_use block.
+    result.dispatchTool = async (
+      name: string,
+      rawInput: unknown,
+      tools: ToolMapping[N],
+    ): Promise<DispatchResult> => {
+      const argSchema = toolSchemas[name];
+      const impl = (tools as unknown as Record<string, ((input: never) => unknown) | undefined>)[name];
+      if (argSchema === undefined || typeof impl !== 'function') {
+        return {
+          success: false,
+          error: 'Unknown tool "' + name + '" for prompt "' + promptName + '"',
+          code: 'unknown-tool',
+        };
+      }
+      const parsed = argSchema.safeParse(rawInput);
+      if (!parsed.success) {
+        return { success: false, error: parsed.error.message, code: 'input-validation' };
+      }
+      try {
+        const output = await impl(parsed.data as never);
+        return { success: true, content: JSON.stringify(output) };
+      } catch (e: unknown) {
+        // Only ToolExecutionError is reported back to the model; anything else
+        // is a bug in the implementation and keeps its stack.
+        if (e instanceof ToolExecutionError) {
+          return { success: false, error: e.message, code: 'execution' };
+        }
+        throw e;
+      }
+    };
+  }
+
+  return result as PromptResult<N>;
+}
+{{- else if .AnyHasOutput}}
 export function getPrompt<N extends PromptName>(promptName: N): PromptResult<N> {
   if (_draftPrompts.has(promptName)) {
     console.warn(` + "`" + `[sufleur] Warning: prompt "${promptName}" is a draft version` + "`" + `);
