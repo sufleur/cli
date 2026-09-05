@@ -237,13 +237,9 @@ func TestPlanTools_EmitOrderIsStable(t *testing.T) {
 		t.Fatalf("PlanTools: %v", err)
 	}
 	// Sorted by ref, then version.
-	var order []string
-	for _, k := range plan.Keys {
-		order = append(order, k)
-	}
 	want := []string{"@vendor/alpha@1.0.0", "@vendor/alpha@2.0.0", "@vendor/zeta@1.0.0"}
-	if strings.Join(order, ",") != strings.Join(want, ",") {
-		t.Errorf("emit order is not stable: got %v want %v", order, want)
+	if strings.Join(plan.Keys, ",") != strings.Join(want, ",") {
+		t.Errorf("emit order is not stable: got %v want %v", plan.Keys, want)
 	}
 }
 
