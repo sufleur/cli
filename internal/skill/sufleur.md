@@ -367,7 +367,7 @@ A prompt belongs to **at most one** collection. Linking a prompt that is already
 
 A prompt version can pin **tool contracts**: the wire name the model emits, the description that steers when a tool gets called, and the JSON Schema of its arguments. Pins are frozen into a published version alongside its files, so they arrive with the prompt — `sufleur install` fetches them, and `sufleur generate` turns them into typed bindings.
 
-In this phase the CLI **consumes** pins; it cannot create tools or change what a prompt pins. Do that in the web app.
+The CLI can author tool contracts (see below) but not yet change what a prompt version pins — do that in the web app.
 
 What the generated file gains, for each prompt that pins something:
 
@@ -388,6 +388,75 @@ Two things worth telling the user about when they appear:
 
 Pins the caller cannot read are silently omitted by the registry, so a prompt could in principle generate with a tool missing. Publish-time closure rules make this all but unreachable — a published public prompt cannot pin a non-public tool — but a draft prompt pinning a cross-workspace tool that has since been made private is the residual case.
 
+### Authoring tool contracts
+
+A tool is workspace-scoped and versioned exactly like a prompt: one draft at a time, semver on publish, immutable once published. Address it as `@workspace/name`, a version as `@workspace/name@<version>` where `<version>` is a semver, a constraint, or the literal `draft`.
+
+**Tool names are stricter than prompt names**: `^[a-z][a-z0-9_-]{0,63}$` — no dots, must start with a letter — because the name doubles as the default wire name the model sees, and providers constrain that.
+
+**Two different descriptions, and mixing them up is the easy mistake:**
+
+* `tool update --description` — the *catalog blurb*. Unversioned, used in listing and search, **never sent to the model**.
+* `tool version set-description` — the *model-facing text*, versioned and frozen on publish. This is what steers whether the model calls the tool.
+
+```bash
+sufleur tool list @workspace [--search ...]
+sufleur tool get @workspace/name                  # catalog metadata, dependents, versions
+sufleur tool create @workspace/name --description "..."   # creates the tool + a draft
+sufleur tool update @workspace/name --description "..."
+
+sufleur tool version draft @workspace/name        # new draft, carrying the last published contract forward
+sufleur tool version list @workspace/name [--status DRAFT|PUBLISHED]
+sufleur tool version get @workspace/name@version  # model description + both schemas
+sufleur tool version delete @workspace/name@draft
+```
+
+#### Local loop: dump → edit → push
+
+```bash
+sufleur tool dump @workspace/name@draft --to ./tool
+```
+
+Produces:
+
+```
+./tool/
+  input-schema.json     the arguments the model emits; always written
+  output-schema.json    what your implementation returns; absent if unset
+  description.md        the model-facing description (versioned)
+  README.md             documentation for humans; always written
+  metadata.yaml         free-form metadata; "{}" when empty
+  tool.yaml             catalog metadata — read-only, nothing reads it back
+```
+
+Push each piece back:
+
+```bash
+sufleur tool schema set @workspace/name@draft --file ./tool/input-schema.json
+sufleur tool schema set @workspace/name@draft --output --file ./tool/output-schema.json
+sufleur tool schema set @workspace/name@draft --output --clear
+sufleur tool version set-description @workspace/name@draft --file ./tool/description.md
+sufleur tool version set-readme @workspace/name@draft --file ./tool/README.md
+sufleur tool version set-metadata @workspace/name@draft --from-file ./tool/metadata.yaml
+sufleur tool version set-metadata @workspace/name@draft --string owner=platform --delete stale
+```
+
+`sufleur tool schema get @workspace/name@version [--output] [--file PATH]` reads one back without dumping the whole version.
+
+#### Write schemas the generators can express
+
+`tool schema set` checks the schema **locally, before anything is sent**, against the subset both code generators can model. The registry accepts more than that, but anything outside it silently becomes `unknown` in generated TypeScript and `Any` in generated Python — which you would only notice much later, reading the output.
+
+Supported: `type` (string, integer, number, boolean, null, object, array), `properties`, `items` with a single schema, `required`, `enum` with values all of one type, `oneOf`/`anyOf`, plus `description`/`title`/`default`.
+
+Rejected, with a JSON Pointer to the offending property: `$ref`, `$defs`, `allOf`, `not`, `if`/`then`/`else`, `patternProperties`, a schema-valued `additionalProperties`, tuple-typed `items`, a mixed-type `enum`, a list of types (use `anyOf`), and a `required` entry with no matching property.
+
+An input schema must be `{"type": "object"}` at the root — it describes the arguments the model emits, which providers require to be an object. An output schema may be any shape.
+
+#### `set-metadata` is a read-modify-write
+
+Unlike a prompt version's metadata, a tool version's is a plain JSON object with no per-key mutation on the server. `--from-file` replaces the whole object; the typed flags fetch the current object, patch it, and write it back whole. Two concurrent edits can lose one another.
+
 ## What the CLI cannot do — hand back to the human
 
 These operations are intentionally human-only:
@@ -395,7 +464,9 @@ These operations are intentionally human-only:
 * **Publishing a draft** (promoting a prompt **or dataset** draft to a stable version).
 * **Changing visibility** (PUBLIC ↔ PRIVATE) of a prompt, dataset, or collection.
 * **Deleting a collection**, or **removing/unlinking a prompt from a collection** (these are destructive — only `link` is exposed, never an unlink).
-* **Creating or editing tool contracts**, and **changing what a prompt version pins**. The CLI reads pins so `install`/`generate` can type them; authoring them is web-app-only for now.
+* **Publishing a tool version.** The mutation exists, but it is the gate that unblocks publishing every dependent prompt, so it stays with a human — as prompt and dataset publishing does.
+* **Changing a tool's visibility, or deleting a tool.** Going private can strand published prompts in other workspaces; deletion is destructive and cross-workspace.
+* **Changing what a prompt version pins.** The CLI reads pins so `install`/`generate` can type them; editing them is web-app-only for now.
 * **Configuring AI provider credentials** (adding or removing API keys). The CLI can *list* a workspace's providers (`workspace providers @workspace`) so you know what an eval can run against, but never add or change them.
 
 When a draft or collection is ready for any of these, stop and summarise what changed. Tell the user to act via the web UI when they're ready. Do not look for or attempt to use a `publish`, `visibility`, `delete`-collection, `unlink`, or provider-credential command — they intentionally do not exist on the CLI.
@@ -468,6 +539,21 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Link prompt to collection | `sufleur collection link @workspace/+name @workspace/prompt [--force]` |
 | Set collection README | `sufleur collection set-readme @workspace/+name [--content STR \| --file PATH]` |
 | Set collection description | `sufleur collection set-description @workspace/+name [--content STR \| --file PATH]` |
+| List tools | `sufleur tool list @workspace [--search ...]` |
+| Inspect tool | `sufleur tool get @workspace/name` |
+| Create tool | `sufleur tool create @workspace/name --description "..."` |
+| Update tool blurb | `sufleur tool update @workspace/name --description "..."` |
+| Dump tool version | `sufleur tool dump @workspace/name@version --to ./dir [--force]` |
+| New tool draft | `sufleur tool version draft @workspace/name` |
+| List tool versions | `sufleur tool version list @workspace/name [--status DRAFT\|PUBLISHED]` |
+| Inspect tool version | `sufleur tool version get @workspace/name@version` |
+| Delete tool draft | `sufleur tool version delete @workspace/name@draft` |
+| Set model description | `sufleur tool version set-description @workspace/name@draft [--content STR \| --file PATH]` |
+| Set tool README | `sufleur tool version set-readme @workspace/name@draft [--content STR \| --file PATH]` |
+| Set tool metadata | `sufleur tool version set-metadata @workspace/name@draft [--from-file PATH \| --string K=V \| --delete K]` |
+| Get tool schema | `sufleur tool schema get @workspace/name@version [--output] [--file PATH]` |
+| Set tool schema | `sufleur tool schema set @workspace/name@draft [--output] --file schema.json` |
+| Clear tool output schema | `sufleur tool schema set @workspace/name@draft --output --clear` |
 | List datasets | `sufleur dataset list @workspace [--search ... --limit ... --offset ...]` |
 | Inspect dataset | `sufleur dataset get @workspace/name` |
 | Create dataset | `sufleur dataset create @workspace/name --description "..."` |
