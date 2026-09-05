@@ -50,6 +50,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(fileCmd)
 	rootCmd.AddCommand(datasetCmd)
+	rootCmd.AddCommand(toolCmd)
 	rootCmd.AddCommand(evalCmd)
 	rootCmd.AddCommand(collectionCmd)
 	rootCmd.AddCommand(skillCmd)

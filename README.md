@@ -120,6 +120,7 @@ The generated file inlines every prompt (no runtime fetches) and exposes `getPro
 | Files | `file create / update / delete / list / set-entrypoint` |
 | Evals | `eval get / validate / push / delete / run / runs / show / watch / cases / case` |
 | Datasets | `dataset create / get / list / update / dump`, plus `dataset version / schema / cases` subgroups |
+| Tools | `tool create / get / list / update / dump`, plus `tool version / schema` subgroups |
 | Collections | `collection create / get / list-prompts / link / set-readme / set-description` |
 | Local render | `prompt render <dir> --entrypoint <name> --vars '{...}'` |
 
