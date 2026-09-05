@@ -14,7 +14,10 @@ import (
 // would fail for everything else in the tree.
 func updateGolden() bool { return os.Getenv("UPDATE_GOLDEN") != "" }
 
-const goldenPath = "testdata/no_tools_snapshot.py"
+const (
+	goldenPath      = "testdata/no_tools_snapshot.py"
+	toolsGoldenPath = "testdata/tools_snapshot.py"
+)
 
 // snapshotFixturePrompts returns a fixture set that exercises every feature the
 // generator supported before tool contracts existed: nested and optional and
@@ -206,4 +209,109 @@ func TestNoToolsOutputByteIdentical(t *testing.T) {
 		}
 	}
 	t.Fatalf("generated output differs from %s but no differing line was found", goldenPath)
+}
+
+// toolsFixturePrompts exercises the tool-contract emitter: two prompts sharing
+// one contract under different wire names, a second version of the same tool
+// (forcing the version-suffix rule), a draft pin, a tool with no output schema,
+// and a prompt that pins nothing.
+func toolsFixturePrompts() []generator.PromptData {
+	searchInput := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"query":      map[string]interface{}{"type": "string", "description": "What to search for"},
+			"maxResults": map[string]interface{}{"type": "integer"},
+		},
+		"required": []interface{}{"query"},
+	}
+	searchOutput := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"results": map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"title": map[string]interface{}{"type": "string"},
+						"url":   map[string]interface{}{"type": "string"},
+					},
+					"required": []interface{}{"title", "url"},
+				},
+			},
+		},
+		"required": []interface{}{"results"},
+	}
+
+	searchV1 := generator.ToolPin{
+		Alias: "web_search", Ref: "@vendor/web-search", Version: "1.2.0", Status: "PUBLISHED",
+		ModelDescription: "Searches the web.", InputSchema: searchInput, OutputSchema: searchOutput,
+	}
+	searchV2 := generator.ToolPin{
+		Alias: "search", Ref: "@vendor/web-search", Version: "2.0.0", Status: "PUBLISHED",
+		ModelDescription: "Searches the web, v2.", InputSchema: searchInput, OutputSchema: searchOutput,
+	}
+	fetchDraft := generator.ToolPin{
+		Alias: "fetch-page", Ref: "@acme/fetch-page", Version: "draft", Status: "DRAFT",
+		ModelDescription: "Fetches a page.",
+		InputSchema: map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{"url": map[string]interface{}{"type": "string"}},
+			"required":   []interface{}{"url"},
+		},
+	}
+
+	return []generator.PromptData{
+		{
+			Ref: "@app/daily-brief", Name: "daily-brief", Version: "1.0.0", Status: "PUBLISHED",
+			Description: "Agentic prompt with tools",
+			Files: []generator.PromptFile{
+				{Name: "main", Content: "Research {{topic}}.", IsEntrypoint: true,
+					InputSchema: map[string]interface{}{
+						"type":       "object",
+						"properties": map[string]interface{}{"topic": map[string]interface{}{"type": "string"}},
+						"required":   []interface{}{"topic"},
+					}},
+			},
+			// Same contract as @app/research pins, under a different wire name.
+			Tools: []generator.ToolPin{searchV1, fetchDraft},
+		},
+		{
+			Ref: "@app/plain", Name: "plain", Version: "1.0.0", Status: "PUBLISHED",
+			Files: []generator.PromptFile{{Name: "main", Content: "No tools here.", IsEntrypoint: true}},
+		},
+		{
+			Ref: "@app/research", Name: "research", Version: "2.0.0", Status: "PUBLISHED",
+			OutputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{"summary": map[string]interface{}{"type": "string"}},
+				"required":   []interface{}{"summary"},
+			},
+			Files: []generator.PromptFile{
+				{Name: "main", Content: "Summarise.", IsEntrypoint: true},
+			},
+			Tools: []generator.ToolPin{searchV2},
+		},
+	}
+}
+
+// TestToolsOutputSnapshot records the emitted file for a tools-bearing project,
+// so the generated API is reviewable as a diff rather than only asserted at.
+func TestToolsOutputSnapshot(t *testing.T) {
+	actual := normaliseGeneratedAt(generateAndRead(t, toolsFixturePrompts()))
+
+	if updateGolden() {
+		if err := os.WriteFile(toolsGoldenPath, []byte(actual), 0o644); err != nil {
+			t.Fatalf("writing golden: %v", err)
+		}
+		t.Logf("updated %s", toolsGoldenPath)
+		return
+	}
+
+	want, err := os.ReadFile(toolsGoldenPath)
+	if err != nil {
+		t.Fatalf("reading golden (set UPDATE_GOLDEN=1 to create it): %v", err)
+	}
+	if normaliseGeneratedAt(string(want)) != actual {
+		t.Errorf("generated tools output differs from %s; re-record with UPDATE_GOLDEN=1 go test ./internal/generator/...", toolsGoldenPath)
+	}
 }
