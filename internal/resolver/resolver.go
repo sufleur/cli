@@ -8,6 +8,7 @@ import (
 	"github.com/sufleur/cli/internal/cache"
 	"github.com/sufleur/cli/internal/config"
 	"github.com/sufleur/cli/internal/fetcher"
+	"github.com/sufleur/cli/internal/generator"
 	"github.com/sufleur/cli/internal/integrity"
 	"github.com/sufleur/cli/internal/lockfile"
 	"github.com/sufleur/cli/internal/promptref"
@@ -171,6 +172,12 @@ func (r *Resolver) Install(ctx context.Context) (*Result, error) {
 				result.DraftWarnings = append(result.DraftWarnings,
 					fmt.Sprintf("prompt %q resolved to draft version %s", e.entry.Alias, internal.Version))
 			}
+			// A pinned draft tool's contract is still mutable, so generated code
+			// can go stale without the prompt's own version moving.
+			for _, alias := range internal.draftTools {
+				result.DraftWarnings = append(result.DraftWarnings,
+					fmt.Sprintf("prompt %q pins draft tool %q", e.entry.Alias, alias))
+			}
 		}
 	}
 
@@ -212,6 +219,10 @@ type resolvedPromptInternal struct {
 	integritySHA string
 	resolvedAt   time.Time
 	fetched      bool
+	// draftTools are the wire names of pins on unpublished tool versions. A
+	// draft tool's contract can still change without the prompt's version
+	// moving, so generated code can go stale under the installer.
+	draftTools []string
 }
 
 func (r *Resolver) resolveOne(
@@ -236,6 +247,7 @@ func (r *Resolver) resolveOne(
 		r.opts.ForceAll ||
 		updateSet[entry.Alias]
 
+	var cachedDraftTools []string
 	if !needsFetch {
 		cacheKey := cache.Key(pkg.Raw, pkg.Name, existingEntry.Version)
 		cached, err := dc.Load(cacheKey)
@@ -243,6 +255,8 @@ func (r *Resolver) resolveOne(
 			needsFetch = true
 		} else if integrity.Verify(cached, existingEntry.IntegritySHA) != nil {
 			needsFetch = true
+		} else {
+			cachedDraftTools = generator.DraftToolAliases(*cached)
 		}
 	}
 
@@ -253,6 +267,7 @@ func (r *Resolver) resolveOne(
 			integritySHA: existingEntry.IntegritySHA,
 			resolvedAt:   existingEntry.ResolvedAt,
 			fetched:      false,
+			draftTools:   cachedDraftTools,
 		}, nil
 	}
 
@@ -289,6 +304,7 @@ func (r *Resolver) resolveOne(
 		integritySHA: sha,
 		resolvedAt:   time.Now().UTC(),
 		fetched:      true,
+		draftTools:   generator.DraftToolAliases(*pd),
 	}, nil
 }
 
@@ -304,13 +320,19 @@ func computeDiffs(old, new *lockfile.Lockfile) []PromptDiff {
 				NewConstraint: newEntry.Constraint,
 			})
 		} else if oldEntry.Version != newEntry.Version || oldEntry.IntegritySHA != newEntry.IntegritySHA {
-			diffs = append(diffs, PromptDiff{
+			diff := PromptDiff{
 				Name:          name,
 				OldVersion:    oldEntry.Version,
 				NewVersion:    newEntry.Version,
 				OldConstraint: oldEntry.Constraint,
 				NewConstraint: newEntry.Constraint,
-			})
+			}
+			// Same version, different content: on a draft, the only things that
+			// can move are the files and the tool pins.
+			if oldEntry.Version == newEntry.Version {
+				diff.Reason = "content changed"
+			}
+			diffs = append(diffs, diff)
 		}
 	}
 

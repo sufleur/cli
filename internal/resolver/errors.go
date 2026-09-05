@@ -12,6 +12,9 @@ type PromptDiff struct {
 	NewVersion    string
 	OldConstraint string
 	NewConstraint string
+	// Reason explains a change the version numbers alone do not show, so a
+	// tool-pin drift does not render as the nonsense "1.2.3 → 1.2.3".
+	Reason string
 }
 
 func (d PromptDiff) String() string {
@@ -20,6 +23,9 @@ func (d PromptDiff) String() string {
 	}
 	if d.NewVersion == "" {
 		return fmt.Sprintf("  - %s@%s (removed)", d.Name, d.OldVersion)
+	}
+	if d.Reason != "" {
+		return fmt.Sprintf("  ~ %s: %s → %s (%s)", d.Name, d.OldVersion, d.NewVersion, d.Reason)
 	}
 	return fmt.Sprintf("  ~ %s: %s → %s", d.Name, d.OldVersion, d.NewVersion)
 }

@@ -29,6 +29,53 @@ type fakeRegistry struct {
 
 	// collections maps a collection name to its member prompt names.
 	collections map[string][]string
+
+	// promptTools maps a bare prompt name to the tool contracts its version
+	// pins. Absent by default, so every existing test's response payload is
+	// byte-for-byte what it was before tool contracts existed.
+	promptTools map[string][]fakeToolPin
+}
+
+// fakeToolPin is one pinned contract in a fake version response.
+type fakeToolPin struct {
+	alias        string
+	toolName     string
+	workspace    string
+	version      string
+	status       string
+	description  string
+	inputSchema  map[string]any
+	outputSchema map[string]any
+}
+
+func (p fakeToolPin) toJSON() map[string]any {
+	status := p.status
+	if status == "" {
+		status = "PUBLISHED"
+	}
+	schema := p.inputSchema
+	if schema == nil {
+		schema = map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"q": map[string]any{"type": "string"}},
+			"required":   []any{"q"},
+		}
+	}
+	return map[string]any{
+		"alias": p.alias,
+		"toolVersion": map[string]any{
+			"version":          p.version,
+			"status":           status,
+			"modelDescription": p.description,
+			"inputSchema":      schema,
+			"outputSchema":     p.outputSchema,
+			"metadata":         map[string]any{},
+			"tool": map[string]any{
+				"name":      p.toolName,
+				"workspace": map[string]any{"name": p.workspace},
+			},
+		},
+	}
 }
 
 func newFakeRegistry(t *testing.T) *fakeRegistry {
@@ -37,6 +84,7 @@ func newFakeRegistry(t *testing.T) *fakeRegistry {
 		t:           t,
 		versions:    map[string]string{},
 		collections: map[string][]string{},
+		promptTools: map[string][]fakeToolPin{},
 	}
 }
 
@@ -89,7 +137,7 @@ func (f *fakeRegistry) handle(w http.ResponseWriter, r *http.Request) {
 		name, _ := req.Variables["promptName"].(string)
 		var version any
 		if v, ok := f.versions[name]; ok {
-			version = map[string]any{
+			payload := map[string]any{
 				"version":      v,
 				"status":       "PUBLISHED",
 				"metadata":     map[string]any{},
@@ -105,6 +153,16 @@ func (f *fakeRegistry) handle(w http.ResponseWriter, r *http.Request) {
 					},
 				},
 			}
+			// Only present when a test asked for pins, so responses for every
+			// other test are unchanged.
+			if pins, ok := f.promptTools[name]; ok {
+				tools := make([]map[string]any, len(pins))
+				for i, pin := range pins {
+					tools[i] = pin.toJSON()
+				}
+				payload["tools"] = tools
+			}
+			version = payload
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": map[string]any{
