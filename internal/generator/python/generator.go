@@ -394,31 +394,9 @@ func unionToPythonType(union interface{}, namePrefix string, classes *[]typedDic
 	return base
 }
 
-// toPascalCase converts kebab-case, snake_case, or @workspace/name to PascalCase.
-func toPascalCase(s string) string {
-	var b strings.Builder
-	upper := true
-	for _, r := range s {
-		if r == '-' || r == '_' || r == '@' || r == '/' {
-			upper = true
-			continue
-		}
-		if upper {
-			b.WriteRune(toUpper(r))
-			upper = false
-		} else {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-func toUpper(r rune) rune {
-	if r >= 'a' && r <= 'z' {
-		return r - 32
-	}
-	return r
-}
+// toPascalCase delegates to the shared implementation so prompt and tool
+// identifiers are derived identically by both generators.
+func toPascalCase(s string) string { return generator.ToPascalCase(s) }
 
 // escapeForPythonString escapes special characters for use inside a Python double-quoted string.
 func escapeForPythonString(s string) string {
