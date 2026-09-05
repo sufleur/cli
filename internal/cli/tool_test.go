@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/sufleur/cli/internal/toolschema"
 	"github.com/sufleur/cli/internal/userapi"
 )
 
@@ -250,5 +251,68 @@ func TestToolUpdate_RequiresDescription(t *testing.T) {
 	err := toolUpdateCmd.RunE(toolUpdateCmd, []string{"@acme/web-search"})
 	if err == nil || !strings.Contains(err.Error(), "--description is required") {
 		t.Errorf("expected --description to be required, got %v", err)
+	}
+}
+
+// `tool dump` writes metadata.yaml, so --from-file has to read YAML — parsing
+// JSON here broke the documented dump → edit → push loop on the first push.
+func TestParseToolMetadataFile(t *testing.T) {
+	fromDump := "owner: search-team\nretries: 3\n"
+	parsed, err := parseToolMetadataFile([]byte(fromDump))
+	if err != nil {
+		t.Fatalf("parsing dumped YAML: %v", err)
+	}
+	if parsed["owner"] != "search-team" || parsed["retries"] != 3 {
+		t.Errorf("YAML did not round-trip: %v", parsed)
+	}
+
+	// YAML is a superset of JSON, so a hand-written JSON file still works.
+	parsed, err = parseToolMetadataFile([]byte(`{"owner":"json-team"}`))
+	if err != nil {
+		t.Fatalf("parsing JSON: %v", err)
+	}
+	if parsed["owner"] != "json-team" {
+		t.Errorf("JSON did not parse: %v", parsed)
+	}
+
+	// An empty file is an empty object, which clears the metadata.
+	parsed, err = parseToolMetadataFile(nil)
+	if err != nil || len(parsed) != 0 {
+		t.Errorf("empty file should clear metadata, got %v (%v)", parsed, err)
+	}
+
+	if _, err := parseToolMetadataFile([]byte("- not\n- an object\n")); err == nil {
+		t.Error("expected a list to be rejected")
+	}
+}
+
+// The dump writes exactly what the push commands read back.
+func TestToolDumpRoundTripsThroughTheSetters(t *testing.T) {
+	dir := t.TempDir()
+	version := &userapi.ToolVersion{
+		Version: "draft", Status: "DRAFT",
+		ModelDescription: "Searches the web.",
+		InputSchema:      map[string]any{"type": "object", "properties": map[string]any{}},
+		Metadata:         map[string]any{"owner": "search-team", "retries": 3},
+		Readme:           "# Tool\n",
+	}
+	if _, err := writeToolDump(dir, &userapi.Tool{Name: "t"}, version); err != nil {
+		t.Fatalf("writeToolDump: %v", err)
+	}
+
+	metadata, err := parseToolMetadataFile([]byte(readDumpFile(t, dir, "metadata.yaml")))
+	if err != nil {
+		t.Fatalf("metadata.yaml is not readable by set-metadata --from-file: %v", err)
+	}
+	if metadata["owner"] != "search-team" {
+		t.Errorf("metadata lost a key on the round trip: %v", metadata)
+	}
+
+	var inputSchema map[string]any
+	if err := json.Unmarshal([]byte(readDumpFile(t, dir, "input-schema.json")), &inputSchema); err != nil {
+		t.Fatalf("input-schema.json is not readable by schema set: %v", err)
+	}
+	if issues := toolschema.ValidateInput(inputSchema); len(issues) != 0 {
+		t.Errorf("a dumped schema must pass the local check: %v", issues)
 	}
 }

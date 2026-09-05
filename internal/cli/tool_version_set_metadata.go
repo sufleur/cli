@@ -1,12 +1,12 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var toolVersionSetMetadataCmd = &cobra.Command{
@@ -14,7 +14,7 @@ var toolVersionSetMetadataCmd = &cobra.Command{
 	Short: "Set metadata on a draft tool version",
 	Long: `Sets the free-form metadata object on a draft version.
 
-  --from-file PATH   replace the whole object from a JSON file (- for stdin)
+  --from-file PATH   replace the whole object from a YAML or JSON file (- for stdin)
   --string K=V       set one string key      (repeatable)
   --integer K=V      set one integer key     (repeatable)
   --float K=V        set one float key       (repeatable)
@@ -58,9 +58,11 @@ whole. Two concurrent edits can lose one another.`,
 			if err != nil {
 				return err
 			}
-			if err := json.Unmarshal(raw, &metadata); err != nil {
-				return fmt.Errorf("parsing metadata as a JSON object: %w", err)
+			parsed, err := parseToolMetadataFile(raw)
+			if err != nil {
+				return fmt.Errorf("parsing %s: %w", fromFile, err)
 			}
+			metadata = parsed
 		} else {
 			// Read-modify-write: the server has no per-key mutation for this field.
 			current, err := client.GetToolVersion(cmd.Context(), ref.Workspace, ref.Name, ref.Version)
@@ -92,6 +94,19 @@ whole. Two concurrent edits can lose one another.`,
 			len(metadata), ref.Workspace, ref.Name, v.Version)
 		return nil
 	},
+}
+
+// parseToolMetadataFile decodes a metadata file into an object.
+//
+// YAML, not JSON, because that is what `tool dump` writes — parsing JSON here
+// would break the documented dump -> edit -> push loop on the first push. YAML
+// is a superset of JSON, so a JSON file still parses.
+func parseToolMetadataFile(raw []byte) (map[string]any, error) {
+	metadata := map[string]any{}
+	if err := yaml.Unmarshal(raw, &metadata); err != nil {
+		return nil, fmt.Errorf("expected a YAML or JSON object: %w", err)
+	}
+	return metadata, nil
 }
 
 type metadataPatch struct {
@@ -173,7 +188,7 @@ func splitMetadataKV(kv string) (string, string, error) {
 }
 
 func init() {
-	toolVersionSetMetadataCmd.Flags().String("from-file", "", "Path to a JSON file replacing the whole metadata object (- for stdin)")
+	toolVersionSetMetadataCmd.Flags().String("from-file", "", "Path to a YAML or JSON file replacing the whole metadata object (- for stdin)")
 	toolVersionSetMetadataCmd.Flags().StringArray("string", nil, "Set a string key (repeatable, K=V)")
 	toolVersionSetMetadataCmd.Flags().StringArray("integer", nil, "Set an integer key (repeatable, K=V)")
 	toolVersionSetMetadataCmd.Flags().StringArray("float", nil, "Set a float key (repeatable, K=V)")
