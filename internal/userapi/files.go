@@ -5,7 +5,7 @@ import "context"
 // CreatePromptFile adds a new file to a draft version. isEntrypoint is
 // optional; pass false (or rely on the zero value) to leave the file as a
 // non-entrypoint.
-func (c *Client) CreatePromptFile(ctx context.Context, workspace, name, version, fileName, content string, isEntrypoint bool) (*PromptFile, error) {
+func (c *Client) CreatePromptFile(ctx context.Context, workspace, name, version, fileName, content string, isEntrypoint bool, format string) (*PromptFile, error) {
 	var resp struct {
 		File *PromptFile `json:"createPromptFile"`
 	}
@@ -14,8 +14,11 @@ func (c *Client) CreatePromptFile(ctx context.Context, workspace, name, version,
 		"content":      content,
 		"isEntrypoint": isEntrypoint,
 	}
+	if format != "" {
+		args["format"] = format
+	}
 	err := c.Do(ctx, Request{
-		Query: "mutation CreatePromptFile($promptName: ID!, $version: ID!, $args: CreatePromptFileInput!) { createPromptFile(promptName: $promptName, version: $version, args: $args) { name content isEntrypoint } }",
+		Query: "mutation CreatePromptFile($promptName: ID!, $version: ID!, $args: CreatePromptFileInput!) { createPromptFile(promptName: $promptName, version: $version, args: $args) { name content isEntrypoint format } }",
 		Variables: map[string]any{
 			"promptName": name,
 			"version":    version,
@@ -37,13 +40,16 @@ func (c *Client) CreatePromptFile(ctx context.Context, workspace, name, version,
 // The backend returns the parent PromptVersion (so the caller sees the full
 // file list); callers that need just the changed file should look it up by
 // the post-rename name.
-func (c *Client) UpdatePromptFile(ctx context.Context, workspace, name, version, fileName, newContent, newName string) (*PromptVersion, error) {
+func (c *Client) UpdatePromptFile(ctx context.Context, workspace, name, version, fileName, newContent, newName, format string) (*PromptVersion, error) {
 	args := map[string]any{}
 	if newContent != "" {
 		args["content"] = newContent
 	}
 	if newName != "" {
 		args["name"] = newName
+	}
+	if format != "" {
+		args["format"] = format
 	}
 	var resp struct {
 		Version *PromptVersion `json:"updatePromptFile"`

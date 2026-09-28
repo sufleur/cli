@@ -13,12 +13,12 @@ func TestJsonSchemaToZod(t *testing.T) {
 		{
 			name:     "nil schema",
 			schema:   nil,
-			expected: "z.record(z.unknown())",
+			expected: "z.record(z.string(), z.unknown())",
 		},
 		{
 			name:     "empty map",
 			schema:   map[string]interface{}{},
-			expected: "z.record(z.unknown())",
+			expected: "z.record(z.string(), z.unknown())",
 		},
 		{
 			name:     "string type",
@@ -129,7 +129,7 @@ func TestJsonSchemaToZod(t *testing.T) {
 			schema: map[string]interface{}{
 				"type": "object",
 			},
-			expected: "z.record(z.unknown())",
+			expected: "z.record(z.string(), z.unknown())",
 		},
 		{
 			name: "nested objects",

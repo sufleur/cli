@@ -2,7 +2,10 @@ package userapi
 
 import (
 	"context"
+	"encoding/json"
 	"time"
+
+	"github.com/sufleur/cli/internal/generator"
 )
 
 // PromptVersion mirrors the queryable subset of the GraphQL PromptVersion
@@ -21,6 +24,10 @@ type PromptVersion struct {
 	ModelConfig  *ModelConfig   `json:"modelConfig,omitempty"`
 	Readme       string         `json:"readme"`
 	Files        []PromptFile   `json:"files"`
+	// DecisionSpec and StateSchema are set only on SYSTEM_ONE decision
+	// prompts. DecisionSpec decodes order-preservingly (question order).
+	DecisionSpec *generator.DecisionSpec `json:"decisionSpec,omitempty"`
+	StateSchema  map[string]any          `json:"stateSchema,omitempty"`
 }
 
 // ModelConfig is a version's structured provider/model/parameters, set via
@@ -38,6 +45,8 @@ type PromptFile struct {
 	Name         string `json:"name"`
 	Content      string `json:"content"`
 	IsEntrypoint bool   `json:"isEntrypoint"`
+	// Format is "TEXT" or "YAML" (YAML only on decision prompts).
+	Format string `json:"format,omitempty"`
 }
 
 // PromptVersionsPage is the response shape of Prompt.versions.
@@ -46,7 +55,31 @@ type PromptVersionsPage struct {
 	Total int             `json:"total"`
 }
 
-const promptVersionFields = "version status createdAt updatedAt metadata outputSchema modelConfig { provider model parameters } readme files { name content isEntrypoint }"
+const promptVersionFields = "version status createdAt updatedAt metadata outputSchema decisionSpec stateSchema modelConfig { provider model parameters } readme files { name content isEntrypoint format }"
+
+// SetPromptVersionDecisionSpec replaces a decision prompt's spec. spec is the
+// JSON document as-is (a RawMessage keeps question and option order).
+func (c *Client) SetPromptVersionDecisionSpec(ctx context.Context, workspace, name, version string, spec json.RawMessage) (*PromptVersion, error) {
+	var resp struct {
+		Version *PromptVersion `json:"promptVersionSetDecisionSpec"`
+	}
+	err := c.Do(ctx, Request{
+		Query: "mutation SetDecisionSpec($promptName: ID!, $version: ID!, $decisionSpec: JSON!) { promptVersionSetDecisionSpec(promptName: $promptName, version: $version, decisionSpec: $decisionSpec) { " + promptVersionFields + " } }",
+		Variables: map[string]any{
+			"promptName":   name,
+			"version":      version,
+			"decisionSpec": spec,
+		},
+		Workspace: workspace,
+	}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Version == nil {
+		return nil, errMissingData("promptVersionSetDecisionSpec")
+	}
+	return resp.Version, nil
+}
 
 // CreatePromptVersion creates a new draft version of an existing prompt by
 // copying its latest published version.

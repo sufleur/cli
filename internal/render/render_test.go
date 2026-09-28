@@ -1,8 +1,10 @@
 package render
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -149,5 +151,73 @@ func TestRender_Sections(t *testing.T) {
 	out, _ := p.Render("entry", map[string]any{"yes": true, "no": false})
 	if out != "YN" {
 		t.Errorf("got %q, want %q", out, "YN")
+	}
+}
+
+// writeTree writes files at arbitrary relative paths (decision prompts need
+// decision.yaml, model-config.yaml and .yaml.mustache files).
+func writeTree(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for rel, content := range files {
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestRenderDecision_StateFileAndYAMLQuestion(t *testing.T) {
+	dir := writeTree(t, map[string]string{
+		"decision.yaml":             "stateFile: state\nquestions:\n  team:\n    type: choice\n    criteria:\n      technical: null\n      billing: Payments\n  spam:\n    type: noul\n",
+		"model-config.yaml":         "provider: typesafe\nmodel: jev-latest\nparameters: {}\n",
+		"files/state.yaml.mustache": "ticket: \"{{ticket}}\"\npolicy: \"{{> policy}}\"\n",
+		"files/team.yaml.mustache":  "question: \"Which team owns {{@field ticket.subject}}?\"\n",
+		"files/spam.mustache":       "Is {{@field ticket.body}} spam for {{tier}}?",
+		"files/policy.mustache":     "Refunds within {{days}} days.",
+	})
+	p, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := p.RenderDecision(nil, map[string]map[string]any{
+		"state": {"ticket": map[string]any{"subject": "Charged \"twice\"", "body": "x"}, "days": 30},
+		"spam":  {"tier": "gold"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"model": "jev-latest",
+		"state": map[string]any{
+			"ticket": map[string]any{"subject": "Charged \"twice\"", "body": "x"},
+			"policy": "Refunds within 30 days.",
+		},
+		"questions": map[string]any{
+			"team": map[string]any{
+				"type":         "choice",
+				"instructions": map[string]any{"question": "Which team owns `ticket.subject`?"},
+				"criteria":     map[string]any{"technical": nil, "billing": "Payments"},
+			},
+			"spam": map[string]any{"type": "noul", "instructions": "Is `ticket.body` spam for gold?"},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("request mismatch:\n got %s", out)
+	}
+	if strings.Index(string(out), `"team"`) > strings.Index(string(out), `"spam"`) {
+		t.Error("questions must keep decision.yaml order")
+	}
+
+	if _, err := p.RenderDecision("raw", nil); err == nil {
+		t.Error("a raw state must be rejected when the prompt has a state file")
 	}
 }

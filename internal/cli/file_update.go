@@ -31,8 +31,12 @@ var fileUpdateCmd = &cobra.Command{
 		}
 		filePath, _ := cmd.Flags().GetString("file")
 		rename, _ := cmd.Flags().GetString("rename")
-		if filePath == "" && rename == "" {
-			return fmt.Errorf("nothing to update: pass --file and/or --rename")
+		format, err := resolveFileFormat(cmd, filePath)
+		if err != nil {
+			return err
+		}
+		if filePath == "" && rename == "" && format == "" {
+			return fmt.Errorf("nothing to update: pass --file, --rename and/or --format")
 		}
 
 		fileName := stripMustacheSuffix(nameFlag)
@@ -51,7 +55,7 @@ var fileUpdateCmd = &cobra.Command{
 			return err
 		}
 
-		v, err := client.UpdatePromptFile(cmd.Context(), ref.Workspace, ref.Name, ref.Version, fileName, newContent, newName)
+		v, err := client.UpdatePromptFile(cmd.Context(), ref.Workspace, ref.Name, ref.Version, fileName, newContent, newName, format)
 		if err != nil {
 			if errors.Is(err, userapi.ErrBearerRejected) {
 				return fmt.Errorf("stored credentials are no longer valid — run `sufleur login` again")
@@ -76,4 +80,5 @@ func init() {
 	fileUpdateCmd.Flags().String("name", "", "Current registry name of the file to update")
 	fileUpdateCmd.Flags().String("file", "", "Path to a local file whose content replaces the current content")
 	fileUpdateCmd.Flags().String("rename", "", "New registry name for the file")
+	fileUpdateCmd.Flags().String("format", "", "Change the file format: text or yaml (decision prompts only). Inferred as yaml from a .yaml.mustache --file")
 }

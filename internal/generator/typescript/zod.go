@@ -10,7 +10,7 @@ import (
 // jsonSchemaToZod converts a JSON Schema (as a map) into Zod TypeScript source code.
 func jsonSchemaToZod(schema map[string]interface{}, indent int) string {
 	if len(schema) == 0 {
-		return "z.record(z.unknown())"
+		return "z.record(z.string(), z.unknown())"
 	}
 
 	// anyOf (no type field)
@@ -112,7 +112,7 @@ func formatBoolLiteral(v interface{}) string {
 func objectToZod(schema map[string]interface{}, indent int) string {
 	props, ok := schema["properties"].(map[string]interface{})
 	if !ok || len(props) == 0 {
-		return "z.record(z.unknown())"
+		return "z.record(z.string(), z.unknown())"
 	}
 
 	requiredSet := make(map[string]bool)

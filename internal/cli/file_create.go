@@ -62,7 +62,12 @@ var fileCreateCmd = &cobra.Command{
 			return err
 		}
 
-		f, err := client.CreatePromptFile(cmd.Context(), ref.Workspace, ref.Name, ref.Version, registryName, string(content), isEntrypoint)
+		format, err := resolveFileFormat(cmd, path)
+		if err != nil {
+			return err
+		}
+
+		f, err := client.CreatePromptFile(cmd.Context(), ref.Workspace, ref.Name, ref.Version, registryName, string(content), isEntrypoint, format)
 		if err != nil {
 			if errors.Is(err, userapi.ErrBearerRejected) {
 				return fmt.Errorf("stored credentials are no longer valid — run `sufleur login` again")
@@ -87,11 +92,32 @@ func init() {
 	fileCreateCmd.Flags().String("file", "", "Path to the local file whose content to upload")
 	fileCreateCmd.Flags().String("name", "", "Registry name (defaults to local basename without .mustache)")
 	fileCreateCmd.Flags().Bool("entrypoint", false, "Mark the new file as an entrypoint")
+	fileCreateCmd.Flags().String("format", "", "File format: text or yaml (decision prompts only). Inferred as yaml from a .yaml.mustache file")
 }
 
-// stripMustacheSuffix removes a trailing ".mustache" if present. The registry
-// stores file names without the extension; the CLI accepts either form from
-// the user and normalises here.
+// stripMustacheSuffix removes a trailing ".mustache" (and the ".yaml" of a
+// ".yaml.mustache" YAML-format file) if present. The registry stores file
+// names without the extension; the CLI accepts either form from the user and
+// normalises here.
 func stripMustacheSuffix(name string) string {
-	return strings.TrimSuffix(name, ".mustache")
+	return strings.TrimSuffix(strings.TrimSuffix(name, ".mustache"), ".yaml")
+}
+
+// resolveFileFormat returns the --format flag as the GraphQL enum value, or
+// YAML when the local file is named *.yaml.mustache. Empty means "leave it".
+func resolveFileFormat(cmd *cobra.Command, path string) (string, error) {
+	flag, _ := cmd.Flags().GetString("format")
+	switch strings.ToLower(flag) {
+	case "text":
+		return "TEXT", nil
+	case "yaml":
+		return "YAML", nil
+	case "":
+		if strings.HasSuffix(path, ".yaml.mustache") {
+			return "YAML", nil
+		}
+		return "", nil
+	default:
+		return "", fmt.Errorf("--format must be text or yaml (got %q)", flag)
+	}
 }

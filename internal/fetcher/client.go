@@ -163,6 +163,9 @@ func (c *client) FetchPromptVersion(ctx context.Context, promptName, constraint 
 			InputSchema:    f.InputSchema,
 			SchemaWarnings: warnings,
 		}
+		if f.Format == generator.FormatYAML {
+			files[i].Format = generator.FormatYAML
+		}
 	}
 
 	var modelConfig map[string]interface{}
@@ -174,7 +177,7 @@ func (c *client) FetchPromptVersion(ctx context.Context, promptName, constraint 
 		}
 	}
 
-	return &generator.PromptData{
+	pd := &generator.PromptData{
 		Name:         promptName,
 		Version:      v.Version,
 		Description:  q.Prompt.Description,
@@ -184,7 +187,16 @@ func (c *client) FetchPromptVersion(ctx context.Context, promptName, constraint 
 		ModelConfig:  modelConfig,
 		Files:        files,
 		Tools:        mapToolPins(v.Tools),
-	}, nil
+	}
+	// Only decision prompts carry these, so an LLM prompt's PromptData — and
+	// therefore its lockfile integrity hash — is unchanged.
+	if q.Prompt.Kind == generator.KindSystemOne && v.DecisionSpec != nil {
+		pd.Kind = generator.KindSystemOne
+		spec := generator.DecisionSpec(*v.DecisionSpec)
+		pd.DecisionSpec = &spec
+		pd.StateSchema = v.StateSchema
+	}
+	return pd, nil
 }
 
 // mapToolPins converts the pinned tool contracts on a version.

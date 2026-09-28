@@ -122,6 +122,22 @@ type fetchPromptVersionResult struct {
 	ModelConfig  *modelConfigResult
 	Files        []promptFileResponse
 	Tools        []promptToolDependencyResponse
+	DecisionSpec *DecisionSpecJSON `scalar:"true"`
+	StateSchema  JSON              `scalar:"true"`
+}
+
+// DecisionSpecJSON is the order-preserving JSON scalar for
+// PromptVersion.decisionSpec (question and option order matter).
+type DecisionSpecJSON generator.DecisionSpec
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (d *DecisionSpecJSON) UnmarshalJSON(data []byte) error {
+	return (*generator.DecisionSpec)(d).UnmarshalJSON(data)
+}
+
+// GetGraphQLType returns the GraphQL type name for this scalar.
+func (d *DecisionSpecJSON) GetGraphQLType() string {
+	return "JSON"
 }
 
 // promptToolDependencyResponse is one pinned tool contract. The backend inlines
@@ -157,6 +173,7 @@ type promptToolResponse struct {
 type fetchPromptVersionQuery struct {
 	Prompt struct {
 		Description string
+		Kind        string
 		Version     *fetchPromptVersionResult `graphql:"version(constraint: $constraint, status: $status)"`
 	} `graphql:"prompt(promptName: $promptName)"`
 }
@@ -175,6 +192,7 @@ type promptFileResponse struct {
 	Name           string
 	Content        string
 	IsEntrypoint   bool
+	Format         string
 	InputSchema    JSON              `scalar:"true"`
 	SchemaWarnings SchemaWarningList `scalar:"true"`
 }

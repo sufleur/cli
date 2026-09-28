@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/sufleur/cli/internal/generator"
 	"github.com/sufleur/cli/internal/promptref"
 	"github.com/sufleur/cli/internal/userapi"
 )
@@ -142,7 +143,11 @@ func writeDump(dir string, v *userapi.PromptVersion, evalYAML string, pins []use
 		if strings.ContainsAny(f.Name, "/\\") {
 			return 0, fmt.Errorf("file name %q contains a path separator; refusing to write", f.Name)
 		}
-		path := filepath.Join(filesDir, f.Name+".mustache")
+		suffix := ".mustache"
+		if f.Format == "YAML" {
+			suffix = ".yaml.mustache"
+		}
+		path := filepath.Join(filesDir, f.Name+suffix)
 		if err := os.WriteFile(path, []byte(f.Content), 0o644); err != nil {
 			return 0, fmt.Errorf("writing %s: %w", path, err)
 		}
@@ -158,6 +163,23 @@ func writeDump(dir string, v *userapi.PromptVersion, evalYAML string, pins []use
 		raw = append(raw, '\n')
 		if err := os.WriteFile(schemaPath, raw, 0o644); err != nil {
 			return 0, fmt.Errorf("writing %s: %w", schemaPath, err)
+		}
+		written++
+	}
+
+	if v.DecisionSpec != nil {
+		specJSON, err := v.DecisionSpec.MarshalJSON()
+		if err != nil {
+			return 0, fmt.Errorf("encoding decision spec: %w", err)
+		}
+		specYAML, err := generator.JSONToYAML(specJSON)
+		if err != nil {
+			return 0, fmt.Errorf("encoding decision spec: %w", err)
+		}
+		decisionPath := filepath.Join(dir, "decision.yaml")
+		header := "# Decision spec — edit and apply with `sufleur version set-decision-spec --from-file decision.yaml`.\n# output-schema.json is derived from it and read-only.\n"
+		if err := os.WriteFile(decisionPath, append([]byte(header), specYAML...), 0o644); err != nil {
+			return 0, fmt.Errorf("writing %s: %w", decisionPath, err)
 		}
 		written++
 	}

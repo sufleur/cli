@@ -32,7 +32,7 @@ func TestClient_CreatePromptFile(t *testing.T) {
 	}))
 	defer server.Close()
 
-	f, err := New(server.URL, "u_test", false).CreatePromptFile(context.Background(), "acme", "welcome", "draft", "greeting", "hi {{name}}", true)
+	f, err := New(server.URL, "u_test", false).CreatePromptFile(context.Background(), "acme", "welcome", "draft", "greeting", "hi {{name}}", true, "")
 	if err != nil {
 		t.Fatalf("CreatePromptFile: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestClient_UpdatePromptFile_OmitsEmpty(t *testing.T) {
 	}))
 	defer server.Close()
 
-	v, err := New(server.URL, "u_test", false).UpdatePromptFile(context.Background(), "acme", "welcome", "draft", "greeting", "new", "")
+	v, err := New(server.URL, "u_test", false).UpdatePromptFile(context.Background(), "acme", "welcome", "draft", "greeting", "new", "", "")
 	if err != nil {
 		t.Fatalf("UpdatePromptFile: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestClient_UpdatePromptFile_RenameOnly(t *testing.T) {
 	}))
 	defer server.Close()
 
-	if _, err := New(server.URL, "u_test", false).UpdatePromptFile(context.Background(), "acme", "welcome", "draft", "greeting", "", "farewell"); err != nil {
+	if _, err := New(server.URL, "u_test", false).UpdatePromptFile(context.Background(), "acme", "welcome", "draft", "greeting", "", "farewell", ""); err != nil {
 		t.Fatalf("UpdatePromptFile: %v", err)
 	}
 }

@@ -12,6 +12,7 @@ type Prompt struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	Visibility  string    `json:"visibility"`
+	Kind        string    `json:"kind,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
@@ -22,7 +23,7 @@ type PromptsPage struct {
 	Total int      `json:"total"`
 }
 
-const promptFields = "name description visibility createdAt updatedAt"
+const promptFields = "name description visibility kind createdAt updatedAt"
 
 // GetPrompt fetches a single prompt by its bare name. The workspace is sent
 // via the X-Workspace header.
@@ -73,16 +74,19 @@ func (c *Client) ListPrompts(ctx context.Context, workspace, search string, take
 // CreatePrompt creates a new prompt. description is optional; pass an empty
 // string to omit it (the field is nullable on the wire). Visibility is not
 // exposed by the CLI per design.
-func (c *Client) CreatePrompt(ctx context.Context, workspace, name, description string) (*Prompt, error) {
+func (c *Client) CreatePrompt(ctx context.Context, workspace, name, description, kind string) (*Prompt, error) {
 	vars := map[string]any{"name": name}
 	if description != "" {
 		vars["description"] = description
+	}
+	if kind != "" {
+		vars["kind"] = kind
 	}
 	var resp struct {
 		Prompt *Prompt `json:"createPrompt"`
 	}
 	err := c.Do(ctx, Request{
-		Query:     "mutation CreatePrompt($name: String!, $description: String) { createPrompt(name: $name, description: $description) { " + promptFields + " } }",
+		Query:     "mutation CreatePrompt($name: String!, $description: String, $kind: PromptKind) { createPrompt(name: $name, description: $description, kind: $kind) { " + promptFields + " } }",
 		Variables: vars,
 		Workspace: workspace,
 	}, &resp)

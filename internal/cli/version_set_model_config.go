@@ -27,7 +27,7 @@ type modelConfigYAML struct {
 // lowercase; they are upper-cased into the LlmProvider GraphQL enum value
 // (e.g. "anthropic" -> "ANTHROPIC") before being sent to the backend.
 var modelConfigProviders = []string{
-	"anthropic", "openai", "google", "mistral", "deepseek", "xai", "groq", "together",
+	"anthropic", "openai", "google", "mistral", "deepseek", "xai", "groq", "together", "typesafe",
 }
 
 var versionSetModelConfigCmd = &cobra.Command{
