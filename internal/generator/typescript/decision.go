@@ -65,6 +65,10 @@ type decisionQuestionDef struct {
 	Type           string          `json:"type"`
 	Criteria       json.RawMessage `json:"criteria,omitempty"`
 	OptionCriteria json.RawMessage `json:"optionCriteria,omitempty"`
+	// Required / OptionRequired are the top-level inputs a question (or one
+	// added option) cannot render without; checked before rendering.
+	Required       []string `json:"required,omitempty"`
+	OptionRequired []string `json:"optionRequired,omitempty"`
 }
 
 // orderedJSON is a JSON object whose members are emitted in the given order.
@@ -144,6 +148,7 @@ func buildDecisionData(p generator.PromptData) (decisionTemplateData, error) {
 		}
 		def.Questions = append(def.Questions, decisionQuestionDef{
 			ID: q.ID, Type: q.Type, Criteria: q.Criteria, OptionCriteria: q.OptionCriteria,
+			Required: requiredKeys(f.InputSchema), OptionRequired: requiredKeys(f.OptionInputSchema),
 		})
 
 		qd := decisionQuestionData{
@@ -208,6 +213,18 @@ func marshalIndentUnescaped(v interface{}, prefix, indent string) (string, error
 		return "", err
 	}
 	return strings.TrimSuffix(buf.String(), "\n"), nil
+}
+
+// requiredKeys lists a schema's top-level required properties.
+func requiredKeys(schema map[string]interface{}) []string {
+	raw, _ := schema["required"].([]interface{})
+	var keys []string
+	for _, k := range raw {
+		if s, ok := k.(string); ok {
+			keys = append(keys, s)
+		}
+	}
+	return keys
 }
 
 func hasProperties(schema map[string]interface{}) bool {
@@ -354,6 +371,8 @@ interface _DecisionDef {
     type: DecisionQuestionType;
     criteria?: unknown;
     optionCriteria?: unknown;
+    required?: string[];
+    optionRequired?: string[];
   }>;
   files: Record<string, _DecisionFile>;
   partials: Record<string, string>;
@@ -411,10 +430,19 @@ function _renderQuestion(
   const q = def.questions.find((item) => item.id === id);
   const file = def.files[id];
   if (!q || !file) throw new Error('[sufleur] unknown question "' + id + '"');
+  const missing = (required: string[] | undefined, view: Record<string, unknown>): string[] =>
+    (required ?? []).filter((name) => view[name] === undefined || view[name] === null);
+  const absent = missing(q.required, inputs);
+  if (absent.length > 0) {
+    throw new Error('[sufleur] "' + id + '" is missing required input(s): ' + absent.join(', '));
+  }
   const render = (view: Record<string, unknown>) => (template: string): string =>
     Mustache.render(template, view, def.partials);
+  // Editors save files with a trailing newline; it must not reach the model.
   const instructions =
-    file.kind === 'text' ? render(inputs)(file.template) : _renderTree(file.tree, inputs, render(inputs));
+    file.kind === 'text'
+      ? render(inputs)(file.template).replace(/[ \t\r\n]+$/, '')
+      : _renderTree(file.tree, inputs, render(inputs));
   const rendered: Record<string, unknown> = { type: q.type, instructions };
   if (q.criteria !== undefined) rendered.criteria = _renderEntry(q.criteria, inputs, render(inputs));
 
@@ -432,6 +460,10 @@ function _renderQuestion(
       throw new Error('[sufleur] "' + id + '": option keys must be non-blank and at most 255 characters');
     }
     if (key in criteria) throw new Error('[sufleur] "' + id + '": option "' + key + '" is already one of the fixed options');
+    const optionAbsent = missing(q.optionRequired, optionInputs ?? {});
+    if (optionAbsent.length > 0) {
+      throw new Error('[sufleur] "' + id + '": option "' + key + '" is missing required input(s): ' + optionAbsent.join(', '));
+    }
     criteria[key] = _renderEntry(q.optionCriteria, optionInputs ?? {}, render(optionInputs ?? {}));
   }
   const total = Object.keys(criteria).length;

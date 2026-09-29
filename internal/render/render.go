@@ -198,24 +198,28 @@ func (p *PromptDir) renderValue(name string, vars map[string]any, provider musta
 // instructions, criteria}. inputs are the question's template inputs; options
 // (an ordered JSON object of option key → option inputs, or nil) add options to
 // an open choice. The rendering rules match the backend and generated code.
-func (p *PromptDir) RenderQuestion(questionID string, inputs map[string]any, options []byte) ([]byte, error) {
+//
+// A variable missing from the inputs renders as empty (as for LLM prompts); the
+// returned warnings name the first one, since an empty value in a question is
+// easy to miss and changes what the model answers.
+func (p *PromptDir) RenderQuestion(questionID string, inputs map[string]any, options []byte) ([]byte, []string, error) {
 	spec := p.DecisionSpec
 	if spec == nil {
-		return nil, fmt.Errorf("no decision.yaml in this directory — not a decision prompt")
+		return nil, nil, fmt.Errorf("no decision.yaml in this directory — not a decision prompt")
 	}
 	q, ok := spec.Question(questionID)
 	if !ok {
-		return nil, fmt.Errorf("%q is not a question in decision.yaml (questions: %s)", questionID, strings.Join(spec.EntrypointNames(), ", "))
+		return nil, nil, fmt.Errorf("%q is not a question in decision.yaml (questions: %s)", questionID, strings.Join(spec.EntrypointNames(), ", "))
 	}
 	content, ok := p.Files[questionID]
 	if !ok {
-		return nil, fmt.Errorf("question file %q is missing from files/", questionID)
+		return nil, nil, fmt.Errorf("question file %q is missing from files/", questionID)
 	}
 	instructions := generator.QuestionInstructions{Template: content}
 	if p.YAMLFiles[questionID] {
 		tree, err := generator.ParseStructured(content)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", questionID, err)
+			return nil, nil, fmt.Errorf("%s: %w", questionID, err)
 		}
 		instructions = generator.QuestionInstructions{YAML: true, Tree: tree}
 	}
@@ -223,22 +227,32 @@ func (p *PromptDir) RenderQuestion(questionID string, inputs map[string]any, opt
 	if len(bytes.TrimSpace(options)) > 0 {
 		var err error
 		if added, err = generator.OrderedOptions(options); err != nil {
-			return nil, fmt.Errorf("--options: %w", err)
+			return nil, nil, fmt.Errorf("--options: %w", err)
 		}
 	}
 	provider := &mustache.StaticProvider{Partials: p.Files}
-	rendered, err := generator.RenderDecisionQuestion(q, instructions, inputs, added,
-		func(template string, view map[string]any) (string, error) {
-			return mustache.RenderPartials(template, provider, view)
-		})
+	renderQ := func() (json.RawMessage, error) {
+		return generator.RenderDecisionQuestion(q, instructions, inputs, added,
+			func(template string, view map[string]any) (string, error) {
+				return mustache.RenderPartials(template, provider, view)
+			})
+	}
+	rendered, err := renderQ()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	var warnings []string
+	mustache.AllowMissingVariables = false
+	_, strictErr := renderQ()
+	mustache.AllowMissingVariables = true
+	if strictErr != nil {
+		warnings = append(warnings, strictErr.Error()+" — it renders as empty; pass it in --vars (or in the option's inputs)")
 	}
 	var out bytes.Buffer
 	if err := json.Indent(&out, rendered, "", "  "); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return out.Bytes(), nil
+	return out.Bytes(), warnings, nil
 }
 
 // substituteDirectives replaces `{{@outputSchema}}` with the pretty-JSON

@@ -19,6 +19,13 @@
       }
     },
     {
+      "name": "trailing whitespace in a text question file is trimmed",
+      "question": { "type": "noul" },
+      "instructions": { "format": "text", "content": "Who owns {{{name}}}?\n  \n" },
+      "inputs": { "name": "it" },
+      "expected": { "type": "noul", "instructions": "Who owns it?" }
+    },
+    {
       "name": "noul without criteria omits the key",
       "question": { "type": "noul" },
       "instructions": { "format": "text", "content": "Is {{{name}}} urgent?" },

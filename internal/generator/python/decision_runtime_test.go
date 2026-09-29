@@ -208,7 +208,21 @@ try:
 except ValueError as e:
     duplicate = str(e)
 
+def error_of(fn: Any) -> str:
+    try:
+        fn()
+        return ""
+    except ValueError as e:
+        return str(e)
+
+
+untyped: Any = triage
+missing_input = error_of(lambda: untyped.question("isUrgent", {}))
+missing_option_input = error_of(lambda: untyped.question("about", options={"k01": {}}))
+
 print(json.dumps({
+    "missingInput": missing_input,
+    "missingOptionInput": missing_option_input,
     "keys": list(questions),
     "aboutCriteria": questions["about"]["criteria"],
     "urgentCriteria": questions["isUrgent:free"]["criteria"],
@@ -269,8 +283,10 @@ print(json.dumps({
 		"n":              0.9, "c": "billing", "a": "k02",
 		"badOk": false, "readErrors": float64(1),
 		"allOk": false, "allErrors": float64(3),
-		"duplicate": `[sufleur] key "isUrgent" is already used in this batch: give repeated questions distinct keys`,
-		"model":     "jev-latest",
+		"duplicate":          `[sufleur] key "isUrgent" is already used in this batch: give repeated questions distinct keys`,
+		"model":              "jev-latest",
+		"missingInput":       `[sufleur] "isUrgent" is missing required input(s): tier`,
+		"missingOptionInput": `[sufleur] "about": option "k01" is missing required input(s): name`,
 	}
 	gotJSON, _ := json.Marshal(got)
 	wantJSON, _ := json.Marshal(want)

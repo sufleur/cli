@@ -217,7 +217,20 @@ try {
   duplicate = (e as Error).message;
 }
 
+const errorOf = (fn: () => unknown): string => {
+  try {
+    fn();
+    return '';
+  } catch (e) {
+    return (e as Error).message;
+  }
+};
+const missingInput = errorOf(() => (triage.question as any)('isUrgent', {}));
+const missingOptionInput = errorOf(() => (triage.question as any)('about', {}, { options: { k01: {} } }));
+
 console.log(JSON.stringify({
+  missingInput,
+  missingOptionInput,
   keys: Object.keys(questions),
   aboutCriteria: questions.about.criteria,
   urgentCriteria: questions['isUrgent:free'].criteria,
@@ -257,8 +270,10 @@ console.log(JSON.stringify({
 		"n":              0.9, "c": "billing", "a": "k02",
 		"badOk": false, "readErrors": float64(1),
 		"allOk": false, "allErrors": float64(3),
-		"duplicate": `[sufleur] key "isUrgent" is already used in this batch: give repeated questions distinct keys`,
-		"model":     "jev-latest",
+		"duplicate":          `[sufleur] key "isUrgent" is already used in this batch: give repeated questions distinct keys`,
+		"model":              "jev-latest",
+		"missingInput":       `[sufleur] "isUrgent" is missing required input(s): tier`,
+		"missingOptionInput": `[sufleur] "about": option "k01" is missing required input(s): name`,
 	}
 	gotJSON, _ := json.Marshal(got)
 	wantJSON, _ := json.Marshal(want)

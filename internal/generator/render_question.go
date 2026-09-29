@@ -61,6 +61,8 @@ func RenderDecisionQuestion(
 		if err != nil {
 			return nil, err
 		}
+		// Editors save files with a trailing newline; it must not reach the model.
+		text = strings.TrimRight(text, " \t\r\n")
 		if instructionsJSON, err = marshalUnescaped(text); err != nil {
 			return nil, err
 		}

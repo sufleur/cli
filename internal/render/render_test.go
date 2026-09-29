@@ -183,7 +183,7 @@ func TestRenderQuestion_TemplatedCriteriaYAMLAndOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := p.RenderQuestion("team", map[string]any{"product": "Acme & Co", "days": 30}, nil)
+	out, warnings, err := p.RenderQuestion("team", map[string]any{"product": "Acme & Co", "days": 30}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,11 @@ func TestRenderQuestion_TemplatedCriteriaYAMLAndOptions(t *testing.T) {
 		t.Fatalf("rendered question mismatch:\n got %s", out)
 	}
 
-	out, err = p.RenderQuestion("about", map[string]any{"misconception": "functors"}, []byte(`{"k02":{"name":"monad"},"k01":{"name":"functor"}}`))
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+
+	out, _, err = p.RenderQuestion("about", map[string]any{"misconception": "functors"}, []byte(`{"k02":{"name":"monad"},"k01":{"name":"functor"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,10 +213,13 @@ func TestRenderQuestion_TemplatedCriteriaYAMLAndOptions(t *testing.T) {
 		t.Fatalf("options must follow the fixed options in the given order:\n%s", out)
 	}
 
-	if _, err := p.RenderQuestion("team", nil, []byte(`{"x":{}}`)); err == nil || !strings.Contains(err.Error(), "fixed set of options") {
+	if _, warnings, err := p.RenderQuestion("about", map[string]any{}, []byte(`{"k01":{"name":"functor"}}`)); err != nil || len(warnings) != 1 || !strings.Contains(warnings[0], "misconception") {
+		t.Errorf("a missing input must be warned about, got %v %v", warnings, err)
+	}
+	if _, _, err := p.RenderQuestion("team", nil, []byte(`{"x":{}}`)); err == nil || !strings.Contains(err.Error(), "fixed set of options") {
 		t.Errorf("options on a closed choice must be rejected, got %v", err)
 	}
-	if _, err := p.RenderQuestion("missing", nil, nil); err == nil {
+	if _, _, err := p.RenderQuestion("missing", nil, nil); err == nil {
 		t.Error("an unknown question must be rejected")
 	}
 }

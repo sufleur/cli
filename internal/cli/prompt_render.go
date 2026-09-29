@@ -58,17 +58,20 @@ rendered here.`,
 		}
 		if question != "" {
 			options, _ := cmd.Flags().GetString("options")
-			out, err := p.RenderQuestion(stripMustacheSuffix(question), vars, []byte(options))
+			out, warnings, err := p.RenderQuestion(stripMustacheSuffix(question), vars, []byte(options))
 			if err != nil {
 				return err
+			}
+			for _, w := range warnings {
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+w)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), string(out))
 			return nil
 		}
+		if p.DecisionSpec != nil {
+			return fmt.Errorf("%s is a decision prompt: render one question with --question (questions: %s)", dir, strings.Join(p.DecisionSpec.EntrypointNames(), ", "))
+		}
 		if entrypoint == "" {
-			if p.DecisionSpec != nil {
-				return fmt.Errorf("--question is required for a decision prompt (questions: %s)", strings.Join(p.DecisionSpec.EntrypointNames(), ", "))
-			}
 			return fmt.Errorf("--entrypoint is required")
 		}
 		out, err := p.Render(entrypoint, vars)

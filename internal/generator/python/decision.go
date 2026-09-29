@@ -58,6 +58,10 @@ type decisionQuestionDef struct {
 	Type           string          `json:"type"`
 	Criteria       json.RawMessage `json:"criteria,omitempty"`
 	OptionCriteria json.RawMessage `json:"optionCriteria,omitempty"`
+	// Required / OptionRequired are the top-level inputs a question (or one
+	// added option) cannot render without; checked before rendering.
+	Required       []string `json:"required,omitempty"`
+	OptionRequired []string `json:"optionRequired,omitempty"`
 }
 
 type orderedJSON struct {
@@ -115,6 +119,18 @@ func marshalUnescaped(v interface{}) ([]byte, error) {
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
+// requiredKeys lists a schema's top-level required properties.
+func requiredKeys(schema map[string]interface{}) []string {
+	raw, _ := schema["required"].([]interface{})
+	var keys []string
+	for _, k := range raw {
+		if s, ok := k.(string); ok {
+			keys = append(keys, s)
+		}
+	}
+	return keys
+}
+
 func hasProperties(schema map[string]interface{}) bool {
 	props, ok := schema["properties"].(map[string]interface{})
 	return ok && len(props) > 0
@@ -164,6 +180,7 @@ func buildDecisionData(p generator.PromptData, analysis *inputAnalysis) (decisio
 		}
 		def.Questions = append(def.Questions, decisionQuestionDef{
 			ID: q.ID, Type: q.Type, Criteria: q.Criteria, OptionCriteria: q.OptionCriteria,
+			Required: requiredKeys(f.InputSchema), OptionRequired: requiredKeys(f.OptionInputSchema),
 		})
 
 		qPascal := td.PascalName + toPascalCase(q.ID)
@@ -357,12 +374,20 @@ def _render_question(
         raise KeyError('[sufleur] unknown question "' + question_id + '"')
     partials = definition["partials"]
 
+    def missing(required: Optional[list[str]], view: Mapping[str, Any]) -> list[str]:
+        return [name for name in (required or []) if view.get(name) is None]
+
+    absent = missing(q.get("required"), inputs or {})
+    if absent:
+        raise ValueError('[sufleur] "' + question_id + '" is missing required input(s): ' + ", ".join(absent))
+
     def renderer(view: Mapping[str, Any]) -> Any:
         return lambda template: chevron.render(template, dict(view), partials_dict=partials)
 
     view = dict(inputs or {})
     if file["kind"] == "text":
-        instructions = renderer(view)(file["template"])
+        # Editors save files with a trailing newline; it must not reach the model.
+        instructions = renderer(view)(file["template"]).rstrip(" \t\r\n")
     else:
         instructions = _render_tree(file["tree"], view, renderer(view))
     rendered: dict[str, Any] = {"type": q["type"], "instructions": instructions}
@@ -384,6 +409,12 @@ def _render_question(
             raise ValueError('[sufleur] "' + question_id + '": option keys must be non-blank and at most 255 characters')
         if key in criteria:
             raise ValueError('[sufleur] "' + question_id + '": option "' + key + '" is already one of the fixed options')
+        option_absent = missing(q.get("optionRequired"), option_inputs or {})
+        if option_absent:
+            raise ValueError(
+                '[sufleur] "' + question_id + '": option "' + key + '" is missing required input(s): '
+                + ", ".join(option_absent)
+            )
         criteria[key] = _render_entry(q["optionCriteria"], renderer(option_inputs or {}))
     if len(criteria) < 2 or len(criteria) > 255:
         raise ValueError(
