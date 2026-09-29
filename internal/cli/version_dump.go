@@ -30,6 +30,10 @@ var versionDumpCmd = &cobra.Command{
                               (a complete skeleton if no eval is configured)
   <dir>/tools.yaml            the tool contracts this version pins; always written
                               (informational — edit pins with "version tools")
+  <dir>/decision.yaml         decision (SYSTEM_ONE) prompts only: the question
+                              templates; apply edits with "version set-decision-spec".
+                              YAML-format question files are written as
+                              files/<name>.yaml.mustache
 
 The directory is created if it doesn't exist. Pass --force to overwrite a
 non-empty directory; otherwise dump aborts if the target already has files.`,

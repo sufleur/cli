@@ -171,23 +171,19 @@ func writeTree(t *testing.T, files map[string]string) string {
 	return dir
 }
 
-func TestRenderDecision_StateFileAndYAMLQuestion(t *testing.T) {
+func TestRenderQuestion_TemplatedCriteriaYAMLAndOptions(t *testing.T) {
 	dir := writeTree(t, map[string]string{
-		"decision.yaml":             "stateFile: state\nquestions:\n  team:\n    type: choice\n    criteria:\n      technical: null\n      billing: Payments\n  spam:\n    type: noul\n",
-		"model-config.yaml":         "provider: typesafe\nmodel: jev-latest\nparameters: {}\n",
-		"files/state.yaml.mustache": "ticket: \"{{ticket}}\"\npolicy: \"{{> policy}}\"\n",
-		"files/team.yaml.mustache":  "question: \"Which team owns {{@field ticket.subject}}?\"\n",
-		"files/spam.mustache":       "Is {{@field ticket.body}} spam for {{tier}}?",
-		"files/policy.mustache":     "Refunds within {{days}} days.",
+		"decision.yaml":            "questions:\n  team:\n    type: choice\n    criteria:\n      technical: null\n      billing: Payments for {{{product}}}\n  about:\n    type: choice\n    criteria:\n      none: no concept fits\n    optionCriteria:\n      what: about \"{{{name}}}\"\n",
+		"model-config.yaml":        "provider: typesafe\nmodel: jev-latest\nparameters: {}\n",
+		"files/team.yaml.mustache": "question: \"Which team owns `ticket.subject`?\"\npolicy: \"{{> policy}}\"\n",
+		"files/about.mustache":     "Which concept is {{{misconception}}} about?",
+		"files/policy.mustache":    "Refunds within {{{days}}} days.",
 	})
 	p, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := p.RenderDecision(nil, map[string]map[string]any{
-		"state": {"ticket": map[string]any{"subject": "Charged \"twice\"", "body": "x"}, "days": 30},
-		"spam":  {"tier": "gold"},
-	})
+	out, warnings, err := p.RenderQuestion("team", map[string]any{"product": "Acme & Co", "days": 30}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,28 +192,34 @@ func TestRenderDecision_StateFileAndYAMLQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]any{
-		"model": "jev-latest",
-		"state": map[string]any{
-			"ticket": map[string]any{"subject": "Charged \"twice\"", "body": "x"},
-			"policy": "Refunds within 30 days.",
-		},
-		"questions": map[string]any{
-			"team": map[string]any{
-				"type":         "choice",
-				"instructions": map[string]any{"question": "Which team owns `ticket.subject`?"},
-				"criteria":     map[string]any{"technical": nil, "billing": "Payments"},
-			},
-			"spam": map[string]any{"type": "noul", "instructions": "Is `ticket.body` spam for gold?"},
-		},
+		"type":         "choice",
+		"instructions": map[string]any{"question": "Which team owns `ticket.subject`?", "policy": "Refunds within 30 days."},
+		"criteria":     map[string]any{"technical": nil, "billing": "Payments for Acme & Co"},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("request mismatch:\n got %s", out)
-	}
-	if strings.Index(string(out), `"team"`) > strings.Index(string(out), `"spam"`) {
-		t.Error("questions must keep decision.yaml order")
+		t.Fatalf("rendered question mismatch:\n got %s", out)
 	}
 
-	if _, err := p.RenderDecision("raw", nil); err == nil {
-		t.Error("a raw state must be rejected when the prompt has a state file")
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+
+	out, _, err = p.RenderQuestion("about", map[string]any{"misconception": "functors"}, []byte(`{"k02":{"name":"monad"},"k01":{"name":"functor"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"none": "no concept fits"`) ||
+		strings.Index(string(out), `"k02"`) > strings.Index(string(out), `"k01"`) {
+		t.Fatalf("options must follow the fixed options in the given order:\n%s", out)
+	}
+
+	if _, warnings, err := p.RenderQuestion("about", map[string]any{}, []byte(`{"k01":{"name":"functor"}}`)); err != nil || len(warnings) != 1 || !strings.Contains(warnings[0], "misconception") {
+		t.Errorf("a missing input must be warned about, got %v %v", warnings, err)
+	}
+	if _, _, err := p.RenderQuestion("team", nil, []byte(`{"x":{}}`)); err == nil || !strings.Contains(err.Error(), "fixed set of options") {
+		t.Errorf("options on a closed choice must be rejected, got %v", err)
+	}
+	if _, _, err := p.RenderQuestion("missing", nil, nil); err == nil {
+		t.Error("an unknown question must be rejected")
 	}
 }

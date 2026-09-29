@@ -1,0 +1,231 @@
+{
+  "about": "Shared decision-question rendering cases. Byte-identical copies live in sufleur/monorepo (backend) and sufleur/cli (Go render + generated TS/Python). Each case renders one question: `expected` is the rendered {type, instructions, criteria} compared as compact JSON (key order matters); `expectedError` is a substring of the thrown error; `escaped` pins today's per-library HTML escaping of a double-brace tag (tracked separately).",
+  "cases": [
+    {
+      "name": "text instructions and templated noul criteria",
+      "question": {
+        "type": "noul",
+        "criteria": { "true": "About {{{product}}}", "false": "Not about {{{product}}}" }
+      },
+      "instructions": {
+        "format": "text",
+        "content": "Is the ticket in `ticket` about {{{product}}}?"
+      },
+      "inputs": { "product": "Acme Cloud" },
+      "expected": {
+        "type": "noul",
+        "instructions": "Is the ticket in `ticket` about Acme Cloud?",
+        "criteria": { "true": "About Acme Cloud", "false": "Not about Acme Cloud" }
+      }
+    },
+    {
+      "name": "trailing whitespace in a text question file is trimmed",
+      "question": { "type": "noul" },
+      "instructions": { "format": "text", "content": "Who owns {{{name}}}?\n  \n" },
+      "inputs": { "name": "it" },
+      "expected": { "type": "noul", "instructions": "Who owns it?" }
+    },
+    {
+      "name": "noul without criteria omits the key",
+      "question": { "type": "noul" },
+      "instructions": { "format": "text", "content": "Is {{{name}}} urgent?" },
+      "inputs": { "name": "x" },
+      "expected": { "type": "noul", "instructions": "Is x urgent?" }
+    },
+    {
+      "name": "special characters pass through triple braces unchanged",
+      "question": {
+        "type": "choice",
+        "criteria": { "same": "names for {{{term}}}", "different": null }
+      },
+      "instructions": {
+        "format": "text",
+        "content": "Are \"{{{term}}}\" and {{{key}}}, \"{{{other}}}\", the same thing?"
+      },
+      "inputs": {
+        "term": "A & B \"quoted\" it's <x> /path a=b `tick`",
+        "key": "n01",
+        "other": "F ≅ G ↦ H → I"
+      },
+      "expected": {
+        "type": "choice",
+        "instructions": "Are \"A & B \"quoted\" it's <x> /path a=b `tick`\" and n01, \"F ≅ G ↦ H → I\", the same thing?",
+        "criteria": {
+          "same": "names for A & B \"quoted\" it's <x> /path a=b `tick`",
+          "different": null
+        }
+      }
+    },
+    {
+      "name": "structured and bare-string criteria keep their shape and order",
+      "question": {
+        "type": "choice",
+        "criteria": {
+          "none": {
+            "what": "{{{target}}} is unrelated",
+            "notFor": "a weak link",
+            "examples": ["{{{target}}} vs X", "plain"]
+          },
+          "yes": "{{{target}}} defines it",
+          "no": { "what": "it only mentions {{{target}}}", "notFor": "a definition" }
+        }
+      },
+      "instructions": { "format": "text", "content": "How does {{{target}}} relate?" },
+      "inputs": { "target": "monoid" },
+      "expected": {
+        "type": "choice",
+        "instructions": "How does monoid relate?",
+        "criteria": {
+          "none": {
+            "what": "monoid is unrelated",
+            "notFor": "a weak link",
+            "examples": ["monoid vs X", "plain"]
+          },
+          "yes": "monoid defines it",
+          "no": { "what": "it only mentions monoid", "notFor": "a definition" }
+        }
+      }
+    },
+    {
+      "name": "score levels are templates",
+      "question": {
+        "type": "score",
+        "criteria": [
+          "Calm about {{{product}}}",
+          "Frustrated",
+          { "what": "Angry at {{{product}}}", "level": 3 }
+        ]
+      },
+      "instructions": { "format": "text", "content": "How frustrated is the customer?" },
+      "inputs": { "product": "Acme" },
+      "expected": {
+        "type": "score",
+        "instructions": "How frustrated is the customer?",
+        "criteria": ["Calm about Acme", "Frustrated", { "what": "Angry at Acme", "level": 3 }]
+      }
+    },
+    {
+      "name": "YAML instructions render each value; a whole-value tag passes the input through",
+      "question": { "type": "noul" },
+      "instructions": {
+        "format": "yaml",
+        "content": "question: \"Is {{{subject}}} a refund request?\"\nticket: \"{{ticket}}\"\npriority: 2\nnotes:\n  - \"tier {{{tier}}}\"\n  - null\n"
+      },
+      "inputs": {
+        "subject": "Charged twice",
+        "ticket": { "id": 7, "tags": ["billing"] },
+        "tier": "gold"
+      },
+      "expected": {
+        "type": "noul",
+        "instructions": {
+          "question": "Is Charged twice a refund request?",
+          "ticket": { "id": 7, "tags": ["billing"] },
+          "priority": 2,
+          "notes": ["tier gold", null]
+        }
+      }
+    },
+    {
+      "name": "partials are available to instructions and criteria",
+      "question": { "type": "noul", "criteria": { "true": "{{> policy}}" } },
+      "instructions": { "format": "text", "content": "Does the refund policy apply? {{> policy}}" },
+      "partials": { "policy": "Refunds within {{{days}}} days." },
+      "inputs": { "days": 30 },
+      "expected": {
+        "type": "noul",
+        "instructions": "Does the refund policy apply? Refunds within 30 days.",
+        "criteria": { "true": "Refunds within 30 days." }
+      }
+    },
+    {
+      "name": "options are appended after the fixed options, each rendered with its own inputs",
+      "question": {
+        "type": "choice",
+        "criteria": { "none": "no listed concept fits {{{misconception}}}" },
+        "optionCriteria": {
+          "what": "the wrong belief is about \"{{{name}}}\"",
+          "notFor": "a belief that only mentions {{{name}}}"
+        }
+      },
+      "instructions": {
+        "format": "text",
+        "content": "Which concept is \"{{{misconception}}}\" about?"
+      },
+      "inputs": { "misconception": "functors are functions" },
+      "options": { "k01": { "name": "functor" }, "k02": { "name": "natural transformation" } },
+      "expected": {
+        "type": "choice",
+        "instructions": "Which concept is \"functors are functions\" about?",
+        "criteria": {
+          "none": "no listed concept fits functors are functions",
+          "k01": {
+            "what": "the wrong belief is about \"functor\"",
+            "notFor": "a belief that only mentions functor"
+          },
+          "k02": {
+            "what": "the wrong belief is about \"natural transformation\"",
+            "notFor": "a belief that only mentions natural transformation"
+          }
+        }
+      }
+    },
+    {
+      "name": "an open choice with no fixed options",
+      "question": { "type": "choice", "optionCriteria": "The {{{name}}} team" },
+      "instructions": { "format": "text", "content": "Which team owns this?" },
+      "options": { "identity": { "name": "Identity" }, "billing": { "name": "Billing" } },
+      "expected": {
+        "type": "choice",
+        "instructions": "Which team owns this?",
+        "criteria": { "identity": "The Identity team", "billing": "The Billing team" }
+      }
+    },
+    {
+      "name": "an added option may not collide with a fixed one",
+      "question": {
+        "type": "choice",
+        "criteria": { "none": null },
+        "optionCriteria": "{{{name}}}"
+      },
+      "instructions": { "format": "text", "content": "Which?" },
+      "options": { "none": { "name": "x" }, "k01": { "name": "y" } },
+      "expectedError": "already one of the fixed options"
+    },
+    {
+      "name": "a closed choice takes no options",
+      "question": { "type": "choice", "criteria": { "yes": null, "no": null } },
+      "instructions": { "format": "text", "content": "Which?" },
+      "options": { "maybe": {} },
+      "expectedError": "has a fixed set of options"
+    },
+    {
+      "name": "an open choice still needs two options in total",
+      "question": {
+        "type": "choice",
+        "criteria": { "none": null },
+        "optionCriteria": "{{{name}}}"
+      },
+      "instructions": { "format": "text", "content": "Which?" },
+      "expectedError": "needs between 2 and 255 options"
+    },
+    {
+      "name": "noul and score take no options",
+      "question": { "type": "noul" },
+      "instructions": { "format": "text", "content": "Yes?" },
+      "options": { "a": {} },
+      "expectedError": "takes no options"
+    },
+    {
+      "name": "double braces HTML-escape, differently per library",
+      "question": { "type": "noul" },
+      "instructions": { "format": "text", "content": "{{v}}" },
+      "inputs": { "v": "it's \"A&B\" <x> /path `tick` a=b" },
+      "escaped": {
+        "mustache.js": "it&#39;s &quot;A&amp;B&quot; &lt;x&gt; &#x2F;path &#x60;tick&#x60; a&#x3D;b",
+        "chevron": "it's &quot;A&amp;B&quot; &lt;x&gt; /path `tick` a=b",
+        "cbroglie": "it&#39;s &#34;A&amp;B&#34; &lt;x&gt; /path `tick` a=b"
+      }
+    }
+  ]
+}

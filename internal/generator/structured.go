@@ -256,7 +256,7 @@ func RenderStructured(n *TreeNode, view map[string]any, renderString func(string
 			if !ok {
 				value = nil
 			}
-			raw, err := json.Marshal(value)
+			raw, err := marshalValueUnescaped(value)
 			if err != nil {
 				return nil, err
 			}
@@ -289,6 +289,17 @@ func RenderStructured(n *TreeNode, view map[string]any, renderString func(string
 		return out, nil
 	}
 	return n, nil
+}
+
+// marshalValueUnescaped encodes any value as compact JSON without HTML escaping.
+func marshalValueUnescaped(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 // marshalUnescaped encodes a string without HTML escaping, so templates like

@@ -23,12 +23,10 @@ type PromptData struct {
 	// existing cache files and lockfile integrity hashes stay valid on upgrade.
 	// The other fields are deliberately left untagged for the same reason.
 	Tools []ToolPin `json:"tools,omitempty"`
-	// Kind, DecisionSpec and StateSchema are set only for SYSTEM_ONE decision
-	// prompts; like Tools they are omitted when empty so LLM prompts hash as
-	// before.
-	Kind         string                 `json:"kind,omitempty"`
-	DecisionSpec *DecisionSpec          `json:"decisionSpec,omitempty"`
-	StateSchema  map[string]interface{} `json:"stateSchema,omitempty"`
+	// Kind and DecisionSpec are set only for SYSTEM_ONE decision prompts; like
+	// Tools they are omitted when empty so LLM prompts hash as before.
+	Kind         string        `json:"kind,omitempty"`
+	DecisionSpec *DecisionSpec `json:"decisionSpec,omitempty"`
 }
 
 // ToolPin is one prompt-version -> tool-version pin, with the tool's contract
@@ -85,6 +83,9 @@ type PromptFile struct {
 	// Format is "YAML" for templated structured data (decision prompts only) and
 	// empty for plain Mustache text, so TEXT files marshal exactly as before.
 	Format string `json:",omitempty"`
+	// OptionInputSchema is the inputs of one option added to an open decision
+	// choice (from its optionCriteria); nil otherwise.
+	OptionInputSchema map[string]interface{} `json:",omitempty"`
 }
 
 // SchemaWarning is a single warning produced during input-schema inference.

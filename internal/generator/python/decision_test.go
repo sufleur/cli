@@ -14,9 +14,14 @@ import (
 func decisionFixture(t *testing.T) generator.PromptData {
 	t.Helper()
 	var spec generator.DecisionSpec
-	if err := json.Unmarshal([]byte(`{"stateFile":"state","questions":{"isUrgent":{"type":"noul"},"department":{"type":"choice","criteria":{"technical":null,"billing":"Payments"}}}}`), &spec); err != nil {
+	if err := json.Unmarshal([]byte(`{"questions":{"isUrgent":{"type":"noul","criteria":{"true":"Urgent for a {{{tier}}} customer"}},"department":{"type":"choice","criteria":{"technical":null,"billing":"Payments"}},"about":{"type":"choice","criteria":{"none":null},"optionCriteria":{"what":"about {{{name}}}"}}}}`), &spec); err != nil {
 		t.Fatal(err)
 	}
+	obj := func(props map[string]interface{}, required ...interface{}) map[string]interface{} {
+		return map[string]interface{}{"type": "object", "properties": props, "required": required}
+	}
+	str := map[string]interface{}{"type": "string"}
+	prob := map[string]interface{}{"type": "number"}
 	return generator.PromptData{
 		Ref:          "@acme/triage",
 		Name:         "triage",
@@ -25,20 +30,17 @@ func decisionFixture(t *testing.T) generator.PromptData {
 		Kind:         generator.KindSystemOne,
 		DecisionSpec: &spec,
 		ModelConfig:  map[string]interface{}{"provider": "TYPESAFE", "model": "jev-latest"},
-		OutputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"isUrgent":   map[string]interface{}{"type": "object", "properties": map[string]interface{}{"noul": map[string]interface{}{"type": "number"}}, "required": []interface{}{"noul"}},
-				"department": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"choice": map[string]interface{}{"type": "string", "enum": []interface{}{"technical", "billing"}}}, "required": []interface{}{"choice"}},
-			},
-			"required": []interface{}{"isUrgent", "department"},
-		},
+		OutputSchema: obj(map[string]interface{}{
+			"isUrgent":   obj(map[string]interface{}{"type": map[string]interface{}{"type": "string", "enum": []interface{}{"noul"}}, "noul": prob}, "type", "noul"),
+			"department": obj(map[string]interface{}{"type": map[string]interface{}{"type": "string", "enum": []interface{}{"choice"}}, "choice": map[string]interface{}{"type": "string", "enum": []interface{}{"technical", "billing"}}}, "type", "choice"),
+			"about":      obj(map[string]interface{}{"type": map[string]interface{}{"type": "string", "enum": []interface{}{"choice"}}, "choice": str}, "type", "choice"),
+		}),
 		Files: []generator.PromptFile{
-			{Name: "isUrgent", Content: "Is {{@field ticket.body}} urgent for a {{tier}} customer?", IsEntrypoint: true,
-				InputSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{"tier": map[string]interface{}{"type": "string"}}, "required": []interface{}{"tier"}}},
-			{Name: "department", Content: "question: \"Which team owns {{@field ticket.body}}?\"\npolicy: \"{{> policy}}\"", IsEntrypoint: true, Format: generator.FormatYAML},
-			{Name: "state", Content: "ticket: \"{{ticket}}\"", IsEntrypoint: true, Format: generator.FormatYAML,
-				InputSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{"ticket": map[string]interface{}{}}, "required": []interface{}{"ticket"}}},
+			{Name: "isUrgent", Content: "Is `ticket.body` urgent?", IsEntrypoint: true,
+				InputSchema: obj(map[string]interface{}{"tier": str}, "tier")},
+			{Name: "department", Content: "question: \"Which team owns `ticket.body`?\"\npolicy: \"{{> policy}}\"", IsEntrypoint: true, Format: generator.FormatYAML},
+			{Name: "about", Content: "Which concept is it about?", IsEntrypoint: true,
+				OptionInputSchema: obj(map[string]interface{}{"name": str}, "name")},
 			{Name: "policy", Content: "Refunds within 30 days."},
 		},
 	}
@@ -48,17 +50,24 @@ func TestDecisionPromptGeneratesGetDecision(t *testing.T) {
 	out := generateAndRead(t, []generator.PromptData{decisionFixture(t)})
 	for _, want := range []string{
 		"PromptName = Literal[None]",
-		"from pydantic import BaseModel, ValidationError",
+		"from pydantic import TypeAdapter",
 		`DecisionName = Literal["@acme/triage"]`,
-		"class AcmeTriageStateInputs(TypedDict):",
-		"class AcmeTriageQuestionInputs(TypedDict):",
-		"question_inputs: AcmeTriageQuestionInputs,",
-		"state_inputs: AcmeTriageStateInputs,",
-		`def get_decision(name: Literal["@acme/triage"]) -> _AcmeTriageDecision: ...`,
-		"question_ids: tuple[str, ...] = ('isUrgent', 'department',)",
+		"class AcmeTriageIsUrgentInput(TypedDict):",
+		"class AcmeTriageAboutOptionInput(TypedDict):",
+		"class AcmeTriageDepartmentAnswer(BaseModel):",
+		"question_id: Literal['isUrgent'],",
+		"inputs: AcmeTriageIsUrgentInput,",
+		"options: Optional[Mapping[str, AcmeTriageAboutOptionInput]] = None,",
+		") -> DecisionHandle[AcmeTriageAboutAnswer]: ...",
+		`def get_decision(name: Literal["@acme/triage"]) -> _AcmeTriageDecision:`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("generated output missing %q", want)
+		}
+	}
+	for _, gone := range []string{"build_request", "parse_response", "stateFile", "StateInputs"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("generated output still mentions %q", gone)
 		}
 	}
 }

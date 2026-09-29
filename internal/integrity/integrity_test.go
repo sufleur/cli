@@ -231,3 +231,37 @@ func TestVerify_DetectsAlteredPin(t *testing.T) {
 		t.Error("expected an altered pinned contract to fail verification")
 	}
 }
+
+func TestComputeCoversDecisionSpecAndFileFormat(t *testing.T) {
+	var spec generator.DecisionSpec
+	if err := spec.UnmarshalJSON([]byte(`{"questions":{"q":{"type":"noul"}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	base := &generator.PromptData{
+		Name: "p", Version: "1.0.0", Kind: generator.KindSystemOne, DecisionSpec: &spec,
+		Files: []generator.PromptFile{{Name: "q", Content: "x", IsEntrypoint: true}},
+	}
+	h := Compute(base)
+
+	var changed generator.DecisionSpec
+	if err := changed.UnmarshalJSON([]byte(`{"questions":{"q":{"type":"noul","criteria":{"true":"y"}}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	withSpec := *base
+	withSpec.DecisionSpec = &changed
+	if Compute(&withSpec) == h {
+		t.Error("changing the decision spec must change the hash")
+	}
+
+	withFormat := *base
+	withFormat.Files = []generator.PromptFile{{Name: "q", Content: "x", IsEntrypoint: true, Format: generator.FormatYAML}}
+	if Compute(&withFormat) == h {
+		t.Error("changing a file's format must change the hash")
+	}
+
+	llm := &generator.PromptData{Name: "p", Version: "1.0.0", Files: []generator.PromptFile{{Name: "q", Content: "x", IsEntrypoint: true}}}
+	llmNoKind := *llm
+	if Compute(llm) != Compute(&llmNoKind) {
+		t.Error("LLM hashes must be stable")
+	}
+}

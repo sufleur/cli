@@ -163,6 +163,9 @@ func (c *client) FetchPromptVersion(ctx context.Context, promptName, constraint 
 			InputSchema:    f.InputSchema,
 			SchemaWarnings: warnings,
 		}
+		if len(f.OptionInputSchema) > 0 {
+			files[i].OptionInputSchema = f.OptionInputSchema
+		}
 		if f.Format == generator.FormatYAML {
 			files[i].Format = generator.FormatYAML
 		}
@@ -194,7 +197,6 @@ func (c *client) FetchPromptVersion(ctx context.Context, promptName, constraint 
 		pd.Kind = generator.KindSystemOne
 		spec := generator.DecisionSpec(*v.DecisionSpec)
 		pd.DecisionSpec = &spec
-		pd.StateSchema = v.StateSchema
 	}
 	return pd, nil
 }

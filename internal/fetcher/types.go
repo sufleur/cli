@@ -123,7 +123,6 @@ type fetchPromptVersionResult struct {
 	Files        []promptFileResponse
 	Tools        []promptToolDependencyResponse
 	DecisionSpec *DecisionSpecJSON `scalar:"true"`
-	StateSchema  JSON              `scalar:"true"`
 }
 
 // DecisionSpecJSON is the order-preserving JSON scalar for
@@ -189,10 +188,11 @@ type listCollectionPromptsQuery struct {
 }
 
 type promptFileResponse struct {
-	Name           string
-	Content        string
-	IsEntrypoint   bool
-	Format         string
-	InputSchema    JSON              `scalar:"true"`
-	SchemaWarnings SchemaWarningList `scalar:"true"`
+	Name              string
+	Content           string
+	IsEntrypoint      bool
+	Format            string
+	InputSchema       JSON              `scalar:"true"`
+	OptionInputSchema JSON              `scalar:"true"`
+	SchemaWarnings    SchemaWarningList `scalar:"true"`
 }

@@ -149,6 +149,9 @@ func (g *Generator) Generate(outFile string, prompts []generator.PromptData) err
 		if err != nil {
 			return err
 		}
+		if err := assertNoDecisionCollisions(data, decisions); err != nil {
+			return err
+		}
 		data.AnyDecisions = true
 		data.AnyHasOptional = data.AnyHasOptional || analysis.HasOptional
 		data.AnyHasUnion = data.AnyHasUnion || analysis.HasUnion
@@ -458,6 +461,43 @@ func assertNoIdentifierCollisions(ctx templateContext) error {
 			if err := claim(dict.Name, by); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// assertNoDecisionCollisions catches a decision prompt whose generated names
+// clash with a prompt's, a tool's or another decision prompt's.
+func assertNoDecisionCollisions(data templateContext, decisions decisionContext) error {
+	owner := map[string]string{}
+	for _, p := range data.Prompts {
+		for _, dict := range p.TypedDicts {
+			owner[dict.Name] = "prompt " + p.Name
+		}
+		if p.HasOutputSchema {
+			owner[p.OutputClassName] = "prompt " + p.Name
+		}
+		if p.HasTools {
+			owner[p.ToolsTypeName] = "prompt " + p.Name
+		}
+	}
+	for _, tool := range data.Tools {
+		by := "tool " + tool.Ref
+		owner[tool.BaseName] = by
+		owner[tool.InputClassName] = by
+		for _, dict := range tool.OutputDicts {
+			owner[dict.Name] = by
+		}
+	}
+	for _, d := range decisions.Decisions {
+		by := "decision prompt " + d.Name
+		for _, ident := range decisionIdentifiers(d) {
+			if prev, taken := owner[ident]; taken && prev != by {
+				return fmt.Errorf(
+					"%s and %s both generate the identifier %q; rename one of them, or install under a different alias (sufleur add --alias)",
+					prev, by, ident)
+			}
+			owner[ident] = by
 		}
 	}
 	return nil
@@ -798,8 +838,16 @@ import json
 {{- if or .AnyHasOutput .AnyDecisions}}
 import re
 {{- end}}
-{{- if or .AnyHasOutput .AnyHasTools .AnyDecisions}}
+{{- if or .AnyHasOutput .AnyHasTools}}
 from pydantic import BaseModel, ValidationError
+{{- end}}
+{{- if .AnyDecisions}}
+{{- if not (or .AnyHasOutput .AnyHasTools)}}
+from pydantic import BaseModel, ValidationError
+{{- end}}
+from collections.abc import Mapping
+from typing import Generic, TypeVar
+from pydantic import TypeAdapter
 {{- end}}
 
 # ─── Types ────────────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import (
 	"github.com/cbroglie/mustache"
 )
 
-const specJSON = `{"stateFile":"state","questions":{"isUrgent":{"type":"noul","criteria":{"true":"Time-sensitive"}},"department":{"type":"choice","criteria":{"technical":null,"billing":"Payments","sales":{"scope":["pricing"]}}},"frustration":{"type":"score","criteria":["Calm","Frustrated","Very angry"]}}}`
+const specJSON = `{"questions":{"isUrgent":{"type":"noul","criteria":{"true":"Time-sensitive"}},"department":{"type":"choice","criteria":{"technical":null,"billing":"Payments","sales":{"scope":["pricing"]}}},"frustration":{"type":"score","criteria":["Calm","Frustrated","Very angry"]},"about":{"type":"choice","criteria":{"none":null},"optionCriteria":{"what":"about {{{name}}}"}},"bare":{"type":"choice","criteria":{},"optionCriteria":null}}}`
 
 func TestDecisionSpecPreservesAuthoredOrder(t *testing.T) {
 	var spec DecisionSpec
@@ -20,7 +20,7 @@ func TestDecisionSpecPreservesAuthoredOrder(t *testing.T) {
 	for _, q := range spec.Questions {
 		ids = append(ids, q.ID)
 	}
-	if want := []string{"isUrgent", "department", "frustration"}; !reflect.DeepEqual(ids, want) {
+	if want := []string{"isUrgent", "department", "frustration", "about", "bare"}; !reflect.DeepEqual(ids, want) {
 		t.Fatalf("question order = %v, want %v", ids, want)
 	}
 	if got := spec.Questions[1].ChoiceOptions(); !reflect.DeepEqual(got, []string{"technical", "billing", "sales"}) {
@@ -29,8 +29,11 @@ func TestDecisionSpecPreservesAuthoredOrder(t *testing.T) {
 	if got := spec.Questions[2].ScoreLevels(); got != 3 {
 		t.Fatalf("score levels = %d", got)
 	}
-	if got := spec.EntrypointNames(); !reflect.DeepEqual(got, []string{"isUrgent", "department", "frustration", "state"}) {
+	if got := spec.EntrypointNames(); !reflect.DeepEqual(got, []string{"isUrgent", "department", "frustration", "about", "bare"}) {
 		t.Fatalf("entrypoints = %v", got)
+	}
+	if spec.Questions[1].IsOpenChoice() || !spec.Questions[3].IsOpenChoice() || !spec.Questions[4].IsOpenChoice() {
+		t.Fatalf("open choices misdetected: %+v", spec.Questions)
 	}
 }
 
@@ -48,23 +51,27 @@ func TestDecisionSpecRoundTripsDeterministically(t *testing.T) {
 	}
 }
 
-func TestResolveFieldDirectives(t *testing.T) {
-	got := ResolveFieldDirectives("Is `x` in {{@field ticket.messages[0].text}} or {{ @field policy }}?")
-	if want := "Is `x` in `ticket.messages[0].text` or `policy`?"; got != want {
-		t.Fatalf("got %q, want %q", got, want)
+func TestDecisionSpecIgnoresLegacyStateFile(t *testing.T) {
+	var spec DecisionSpec
+	if err := json.Unmarshal([]byte(`{"stateFile":"state","questions":{"q":{"type":"noul"}}}`), &spec); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(spec)
+	if string(out) != `{"questions":{"q":{"type":"noul"}}}` {
+		t.Fatalf("got %s", out)
 	}
 }
 
 func TestWholeValueVariable(t *testing.T) {
 	cases := map[string]string{
-		"{{ticket}}":             "ticket",
-		" {{{ ticket.body }}} ":  "ticket.body",
-		"{{& ticket}}":           "ticket",
-		"{{a}} {{b}}":            "",
-		"Hi {{name}}":            "",
-		"{{#items}}x{{/items}}":  "",
-		"{{> policy}}":           "",
-		"{{@field ticket.body}}": "",
+		"{{ticket}}":            "ticket",
+		" {{{ ticket.body }}} ": "ticket.body",
+		"{{& ticket}}":          "ticket",
+		"{{a}} {{b}}":           "",
+		"Hi {{name}}":           "",
+		"{{#items}}x{{/items}}": "",
+		"{{> policy}}":          "",
+		"{{@doc ticket.body}}":  "",
 	}
 	for in, want := range cases {
 		if got := WholeValueVariable(in); got != want {

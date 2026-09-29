@@ -80,23 +80,31 @@ Prompts published with `DRAFT` status emit a runtime `console.warn` when their `
 
 ### Decision prompts (TypeSafe Jev)
 
-Prompts for **System-One decision models** such as TypeSafe's **Jev** ask typed questions (`noul`, `choice`, `score`) about a state instead of generating text. They're emitted as `getDecision(name)`, which returns:
+Prompts for **System-One decision models** such as TypeSafe's **Jev** are question templates: typed questions (`noul`, `choice`, `score`) your code asks about a state it builds. They're emitted as `getDecision(name)`, which returns:
 
-- **`buildRequest(args)`** — the request body for `POST https://api.typesafe.ai/v1/systemone`. `args` is typed per prompt: `{ state }` or `{ stateInputs }` depending on whether the prompt has a state file, plus `questionInputs` for questions whose instructions take variables.
-- **`parseResponse(raw)`** — validates the response (or its `answers`) with Zod. Returns `{ success: true, data }`, with each choice's options as a literal union, or `{ success: false, error }`.
-- **`questionIds`**, **`model`** — the questions in authored order and the Jev model the version was written for.
+- **`batch()`** — `ask(questionId, inputs, { key?, options? })` renders a question and returns a typed handle (the key defaults to the question id; ask a question more than once under distinct keys). `items()` lists the rendered questions to send. `read(answers)` validates each answer against its question (`get(handle)` → result, `getOrThrow(handle)` → answer); `readAll(answers)` fails unless every answer is valid.
+- **`question(id, inputs, { options })`** and **`parseAnswer(id, raw)`** — render or validate a single question.
+- **`metadata`** — `version` and the recommended `modelConfig`, as for `getPrompt`.
 
 ```ts
 const triage = getDecision('@my-workspace/ticket-triage');
+const batch = triage.batch();
+const team = batch.ask('department', { product: 'Acme' });
+
 const res = await fetch('https://api.typesafe.ai/v1/systemone', {
   method: 'POST',
   headers: { Authorization: `Bearer ${process.env.TYPESAFE_API_KEY}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify(triage.buildRequest({ state: { ticket } })),
-});
-const result = triage.parseResponse(await res.json());
+  body: JSON.stringify({
+    model: triage.metadata.modelConfig.model,
+    state: { ticket },
+    questions: Object.fromEntries(batch.items().map((i) => [i.key, i.question])),
+  }),
+}).then((r) => r.json());
+
+batch.read(res.answers).getOrThrow(team).choice; // 'billing' | 'technical' | 'sales'
 ```
 
-You make the HTTP call; the generated code adds no runtime dependencies beyond `mustache` and `zod`. Guide: <https://sufleur.com/docs/decision-models>.
+The generated code has no provider request or response shape: you make the call (TypeSafe, OpenRouter's decisions endpoint, …) and add no runtime dependencies beyond `mustache` and `zod`. Guide: <https://sufleur.com/docs/decision-models>.
 
 ## sufleur.yaml
 
@@ -190,7 +198,7 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `version set-metadata @ws/name@draft --string K=V` (or `--from-file …`) | Patch or sync metadata |
 | `version delete-metadata @ws/name@draft --key K` | Remove a metadata key |
 | `version set-output-schema @ws/name@draft --file schema.json` | Replace the version's output schema |
-| `version set-decision-spec @ws/name@draft --from-file decision.yaml` | Set a decision prompt's questions (types, criteria, optional state file) |
+| `version set-decision-spec @ws/name@draft --from-file decision.yaml` | Set a decision prompt's question templates (types, criteria, optionCriteria) |
 | `version set-model-config @ws/name@draft --provider anthropic --model NAME [--params '{...}']` | Set the version's provider/model/parameters |
 | `version set-readme @ws/name@draft [--content STR \| --file PATH]` | Replace the version's README |
 | `version get-readme @ws/name@version` | Print the version's README to stdout (raw markdown) |
@@ -242,7 +250,7 @@ An **eval** scores a prompt version against a **dataset** — judges, CEL assert
 
 ### Render before publishing
 
-`sufleur prompt render <dir> --entrypoint <name> [--vars '{...}' | --vars-file path.json]` runs the same Mustache pipeline as the generated runtime — useful for previewing a draft locally before publishing, or for quick experimentation against a `version dump` directory. No auth required. For a decision prompt, omit `--entrypoint` to print the full request body; pass the raw state with `--state '{...}'` (or `--state-file`).
+`sufleur prompt render <dir> --entrypoint <name> [--vars '{...}' | --vars-file path.json]` runs the same Mustache pipeline as the generated runtime — useful for previewing a draft locally before publishing, or for quick experimentation against a `version dump` directory. No auth required. For a decision prompt, pass `--question <id>` instead to print one rendered question (add `--options '{...}'` for an open choice).
 
 ## Supported platforms
 
