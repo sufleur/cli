@@ -148,6 +148,11 @@ func objectToPydantic(schema map[string]interface{}, className string, classes *
 
 	keys := make([]string, 0, len(props))
 	for k := range props {
+		// A key that is not a Python identifier (e.g. "0", "needs-review")
+		// cannot be a model field; validate such an object as a plain dict.
+		if !isPythonIdentifier(k) {
+			return "dict[str, Any]"
+		}
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
@@ -249,4 +254,26 @@ func renderPydanticClasses(classes []pydanticClass) string {
 		}
 	}
 	return b.String()
+}
+
+var pythonKeywords = map[string]bool{
+	"False": true, "None": true, "True": true, "and": true, "as": true, "assert": true,
+	"async": true, "await": true, "break": true, "class": true, "continue": true,
+	"def": true, "del": true, "elif": true, "else": true, "except": true, "finally": true,
+	"for": true, "from": true, "global": true, "if": true, "import": true, "in": true,
+	"is": true, "lambda": true, "nonlocal": true, "not": true, "or": true, "pass": true,
+	"raise": true, "return": true, "try": true, "while": true, "with": true, "yield": true,
+}
+
+func isPythonIdentifier(s string) bool {
+	if s == "" || pythonKeywords[s] {
+		return false
+	}
+	for i, r := range s {
+		if r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }

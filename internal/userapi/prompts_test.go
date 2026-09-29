@@ -90,7 +90,7 @@ func TestClient_CreatePrompt(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		var req graphqlRequest
 		_ = json.Unmarshal(body, &req)
-		if !strings.Contains(req.Query, "createPrompt(name: $name, description: $description)") {
+		if !strings.Contains(req.Query, "createPrompt(name: $name, description: $description, kind: $kind)") {
 			t.Errorf("query = %q", req.Query)
 		}
 		if req.Variables["name"] != "welcome" {
@@ -103,7 +103,7 @@ func TestClient_CreatePrompt(t *testing.T) {
 	}))
 	defer server.Close()
 
-	got, err := New(server.URL, "u_test", false).CreatePrompt(context.Background(), "acme", "welcome", "hi there")
+	got, err := New(server.URL, "u_test", false).CreatePrompt(context.Background(), "acme", "welcome", "hi there", "")
 	if err != nil {
 		t.Fatalf("CreatePrompt: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestClient_CreatePrompt_OmitsEmptyDescription(t *testing.T) {
 	}))
 	defer server.Close()
 
-	if _, err := New(server.URL, "u_test", false).CreatePrompt(context.Background(), "acme", "welcome", ""); err != nil {
+	if _, err := New(server.URL, "u_test", false).CreatePrompt(context.Background(), "acme", "welcome", "", ""); err != nil {
 		t.Fatalf("CreatePrompt: %v", err)
 	}
 }

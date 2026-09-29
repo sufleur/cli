@@ -49,6 +49,7 @@ func init() {
 		versionSetMetadataCmd,
 		versionDeleteMetadataCmd,
 		versionSetOutputSchemaCmd,
+		versionSetDecisionSpecCmd,
 		versionSetModelConfigCmd,
 		versionSetReadmeCmd,
 		versionGetReadmeCmd,

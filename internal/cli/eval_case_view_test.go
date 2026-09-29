@@ -97,6 +97,33 @@ func TestWriteCaseDetail(t *testing.T) {
 		},
 	}
 
+	t.Run("decision case shows the state it was evaluated against", func(t *testing.T) {
+		c := &userapi.EvalRunCaseDetail{
+			CaseIndex:      0,
+			Passed:         true,
+			ResolvedInputs: rawJSON(`{}`),
+			State:          rawJSON(`{"ticket":{"subject":"Charged twice"}}`),
+			OutputParsed:   rawJSON(`{"spam":{"type":"noul","noul":0.1}}`),
+		}
+		var buf bytes.Buffer
+		writeCaseDetail(&buf, d, c, false)
+		got := buf.String()
+		for _, want := range []string{"State:", `"subject": "Charged twice"`, `"noul": 0.1`} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output missing %q in:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("LLM case has no state block", func(t *testing.T) {
+		c := &userapi.EvalRunCaseDetail{ResolvedInputs: rawJSON(`{}`), State: rawJSON(`null`)}
+		var buf bytes.Buffer
+		writeCaseDetail(&buf, d, c, false)
+		if strings.Contains(buf.String(), "State:") {
+			t.Errorf("unexpected State block:\n%s", buf.String())
+		}
+	})
+
 	t.Run("passed case, parsed output preferred", func(t *testing.T) {
 		c := &userapi.EvalRunCaseDetail{
 			CaseIndex:      1,

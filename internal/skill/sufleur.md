@@ -364,6 +364,62 @@ To work with the prompts inside a collection, list them and then use the normal 
 
 A prompt belongs to **at most one** collection. Linking a prompt that is already in a different collection moves it out of that one, so `collection link` refuses unless you pass `--force`.
 
+## Decision prompts (System-One)
+
+Some prompts target **System-One decision models** (e.g. TypeSafe Jev) instead of text-generating LLMs. A decision prompt (`kind: SYSTEM_ONE`, fixed at creation) is a **set of typed questions** evaluated against one **state**. The model answers each one with a typed value; it never generates text.
+
+| Question type | Criteria | Answer |
+|---|---|---|
+| `noul` | optional `{true: …, false: …}` | `{type: noul, noul: 0..1}` |
+| `choice` | required map `option → description \| null` (2–255) | `{type: choice, choice, probabilities, confidence}` |
+| `score` | required ordered list of levels (2–10) | `{type: score, score, legend, probabilities, confidence}` |
+
+```bash
+sufleur prompt create @workspace/ticket-triage --kind system-one   # seeds one noul question on jev-latest
+```
+
+A dumped decision prompt has a `decision.yaml` next to `files/`:
+
+```yaml
+stateFile: state              # optional; omit to have callers pass the state themselves
+questions:                    # order is kept everywhere (codegen, answers, UI)
+  department:
+    type: choice
+    criteria:
+      billing: Payments, invoicing, refunds
+      technical: null
+  frustration:
+    type: score
+    criteria: [Calm, Frustrated, Very angry]
+  isUrgent:
+    type: noul
+```
+
+* **Each question id is also a file:** `files/department.mustache` holds that question's instructions. Question ids must be identifiers (letters, digits, `_`). Apply the spec with `sufleur version set-decision-spec @workspace/name@draft --from-file decision.yaml`. This creates any missing question/state files and turns dropped ones into partials. Never create or delete those entrypoints by hand.
+* **`output-schema.json` is derived** from the questions (the shape of the answers object) and is read-only. Eval `schema` assertions and CEL (`output.department.choice == "billing"`, `output.isUrgent.noul > 0.7`) type-check against it.
+* **State:** with no `stateFile`, callers pass the state (string, object or list) at call time. With a state file, the state is rendered from that file's template inputs instead.
+* **YAML format files** (`files/<name>.yaml.mustache`, or `--format yaml` on `file create|update`): the file is YAML *data* whose string values are Mustache templates, rendered one by one (parse first, then render). A value that is exactly one tag, e.g. `ticket: "{{ticket}}"`, passes the input through as-is (objects and lists stay structured). Always quote Mustache tags in YAML. YAML is allowed only on question and state files, and gives structured state or structured instructions:
+
+  ```yaml
+  # files/state.yaml.mustache
+  ticket: "{{ticket}}"
+  customer:
+    tier: "{{tier}}"
+  refund_policy: "{{> refund_policy}}"   # a plain-text partial
+  ```
+
+* **`{{@field path}}`** references a state field in question instructions and renders to `` `path` `` (TypeSafe's reference syntax), e.g. `Is {{@field ticket.messages[0].text}} urgent?`. Paths are checked against a YAML state file's keys, and a bad path blocks publishing. For prompts without a state file, the referenced paths become the inferred **state schema**, the shape callers must send.
+* **Model config:** provider `typesafe`, model e.g. `jev-latest`, no parameters: `sufleur version set-model-config @workspace/name@draft --provider typesafe --model jev-latest`.
+* **Render the full request** from a dump by omitting `--entrypoint`:
+
+  ```bash
+  sufleur prompt render ./working --state '{"ticket":{"subject":"Charged twice"}}'        # no state file
+  sufleur prompt render ./working --vars '{"state":{"ticket":{...}},"department":{...}}'  # per-file inputs
+  ```
+
+* **Evals** map the state with a CEL expression: `prompt.inputMapping.state: case.ticket`. Files carry `inputs` but no `role`. With a state file, map that file's inputs under `files` instead. Decision prompts cannot be judges.
+* **Generated code** exposes `getDecision('@workspace/name')` (TS) / `get_decision(...)` (Python) with `buildRequest({ state | stateInputs, questionInputs })` → the `POST /v1/systemone` body, and `parseResponse(raw)` → typed answers (choice options are literal unions).
+
 ## Tool contracts in generated code
 
 A prompt version can pin **tool contracts**: the wire name the model emits, the description that steers when a tool gets called, and the JSON Schema of its arguments. Pins are frozen into a published version alongside its files, so they arrive with the prompt — `sufleur install` fetches them, and `sufleur generate` turns them into typed bindings.
@@ -527,6 +583,7 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | List prompts | `sufleur prompt list @workspace` |
 | Inspect prompt | `sufleur prompt get @workspace/name` |
 | Create prompt | `sufleur prompt create @workspace/name --description "..."` |
+| Create decision prompt | `sufleur prompt create @workspace/name --kind system-one` |
 | Update description | `sufleur prompt update @workspace/name --description "..."` |
 | Create draft | `sufleur version draft @workspace/name` |
 | List versions | `sufleur version list @workspace/name [--status DRAFT\|PUBLISHED]` |
@@ -537,6 +594,7 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Set metadata (patch) | `sufleur version set-metadata @workspace/name@draft --string KEY=VAL` |
 | Delete metadata key | `sufleur version delete-metadata @workspace/name@draft --key KEY` |
 | Set output schema | `sufleur version set-output-schema @workspace/name@draft --file ./schema.json` |
+| Set decision questions | `sufleur version set-decision-spec @workspace/name@draft --from-file ./decision.yaml` |
 | Set model config | `sufleur version set-model-config @workspace/name@draft --provider anthropic --model NAME [--params '{...}']` (or `--from-file ./model-config.yaml`) |
 | Read README | `sufleur version get-readme @workspace/name@version` |
 | Set README | `sufleur version set-readme @workspace/name@draft [--content STR \| --file PATH]` |
@@ -551,6 +609,7 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Delete file | `sufleur file delete @workspace/name@draft --name welcome` |
 | Mark/clear entrypoint | `sufleur file set-entrypoint @workspace/name@draft --name welcome [--clear]` |
 | Render locally | `sufleur prompt render ./dir --entrypoint NAME --vars '{...}'` |
+| Render a decision request | `sufleur prompt render ./dir [--state '{...}'] [--vars '{"file":{...}}']` |
 | Get eval YAML | `sufleur eval get @workspace/name@version [--file PATH]` |
 | Validate eval | `sufleur eval validate @workspace/name@draft --file ./eval.yaml` |
 | Push eval | `sufleur eval push @workspace/name@draft --file ./eval.yaml` |

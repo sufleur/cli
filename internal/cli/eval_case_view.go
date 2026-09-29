@@ -64,6 +64,11 @@ func writeCaseDetail(w io.Writer, d *userapi.EvalRunDetail, c *userapi.EvalRunCa
 	fmt.Fprintln(w, "Inputs:")
 	fmt.Fprintf(w, "  %s\n\n", indentJSON(c.ResolvedInputs))
 
+	if !isRawJSONAbsent(c.State) {
+		fmt.Fprintln(w, "State:")
+		fmt.Fprintf(w, "  %s\n\n", indentJSON(c.State))
+	}
+
 	if c.ProviderError != "" {
 		fmt.Fprintln(w, "Provider error:")
 		fmt.Fprintf(w, "  %s\n\n", c.ProviderError)
