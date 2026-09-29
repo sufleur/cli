@@ -60,14 +60,20 @@ The trust boundary runs the opposite way from prompt I/O: a tool's **arguments**
 
 ### Decision models (TypeSafe Jev)
 
-Prompts can also target **System-One decision models** such as [TypeSafe](https://typesafe.ai)'s **Jev**, which answer typed questions (`noul`, `choice`, `score`) about a state instead of generating text. A decision prompt is a versioned question set, and it generates to a typed request builder and answer parser:
+Prompts can also target **System-One decision models** such as [TypeSafe](https://typesafe.ai)'s **Jev**, which answer typed questions (`noul`, `choice`, `score`) about a state instead of generating text. A decision prompt is a set of versioned question templates. Your code asks any of them, any number of times, and reads back typed answers:
 
 ```ts
 const triage = getDecision('@acme/ticket-triage');
+const batch = triage.batch();
 
-const body = triage.buildRequest({ state: { ticket } });   // → POST https://api.typesafe.ai/v1/systemone
-const result = triage.parseResponse(await res.json());
-if (result.success) result.data.department.choice;          // 'billing' | 'technical' | 'sales'
+const team = batch.ask('department', { product: 'Acme' });
+const same = Object.entries(neighbours).map(([key, n]) => batch.ask('same', { term: n.term }, { key }));
+
+const questions = Object.fromEntries(batch.items().map((i) => [i.key, i.question]));
+const res = await callJev({ model: triage.metadata.modelConfig.model, state, questions });  // your provider call
+
+const answers = batch.read(res.answers);
+answers.getOrThrow(team).choice;                       // 'billing' | 'technical' | 'sales'
 ```
 
 Author them with `prompt create --kind system-one` and `version set-decision-spec` (see below). Full guide: <https://sufleur.com/docs/decision-models>.
@@ -136,21 +142,21 @@ The generated file inlines every prompt (no runtime fetches) and exposes `getPro
 | Datasets | `dataset create / get / list / update / dump`, plus `dataset version / schema / cases` subgroups |
 | Tools | `tool create / get / list / update / dump`, plus `tool version / schema` subgroups |
 | Collections | `collection create / get / list-prompts / link / set-readme / set-description` |
-| Local render | `prompt render <dir> --entrypoint <name> --vars '{...}'`, or `prompt render <dir> --state '{...}'` for a decision prompt's full request |
+| Local render | `prompt render <dir> --entrypoint <name> --vars '{...}'`, or `prompt render <dir> --question <id>` for one decision question |
 
 Every authoring command accepts `--json` for machine-readable output. See the wrapper READMEs for the full table.
 
 ### Decision prompts
 
-A decision prompt is created with `sufleur prompt create @ws/name --kind system-one` (the kind is fixed at creation). Each question is an entrypoint file holding its instructions, and the questions' types and criteria live in a `decision.yaml` spec:
+A decision prompt is created with `sufleur prompt create @ws/name --kind system-one` (the kind is fixed at creation). Each question is a template: an entrypoint file holding its instructions, plus its type and criteria in a `decision.yaml` spec. String values in criteria are Mustache templates rendered with the question's inputs, and a choice with `optionCriteria` lets callers add options at request time.
 
 - `sufleur version dump @ws/name@draft --to ./dir` — writes `decision.yaml` next to `files/`. YAML-format files are dumped as `<name>.yaml.mustache`.
 - `sufleur version set-decision-spec @ws/name@draft --from-file ./dir/decision.yaml` — apply the spec. This is the only way to add or remove questions: missing question files are created, dropped ones become partials.
-- `sufleur file create|update ... --format yaml` — structured instructions or state (inferred from a `.yaml.mustache` extension).
+- `sufleur file create|update ... --format yaml` — structured instructions (inferred from a `.yaml.mustache` extension).
 - `sufleur version set-model-config @ws/name@draft --provider typesafe --model jev-latest`
-- `sufleur prompt render ./dir --state '{...}'` — print the exact request body Jev receives.
+- `sufleur prompt render ./dir --question <id> [--vars '{...}'] [--options '{...}']` — print one rendered question: what your code sends under `questions.<key>`.
 
-In evals, the state is mapped with `inputMapping.state` (a CEL expression over the case), and `output` is the typed answers object, e.g. `output.department.choice == case.team`.
+In evals, `inputMapping.state` is a CEL expression over the case and `inputMapping.questions` lists the questions each case asks (with optional keys and options); `output.<key>` is each answer, e.g. `output.department.choice == case.team`.
 
 ### Collections
 

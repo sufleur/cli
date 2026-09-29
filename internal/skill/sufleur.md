@@ -366,13 +366,13 @@ A prompt belongs to **at most one** collection. Linking a prompt that is already
 
 ## Decision prompts (System-One)
 
-Some prompts target **System-One decision models** (e.g. TypeSafe Jev) instead of text-generating LLMs. A decision prompt (`kind: SYSTEM_ONE`, fixed at creation) is a **set of typed questions** evaluated against one **state**. The model answers each one with a typed value; it never generates text.
+Some prompts target **System-One decision models** (e.g. TypeSafe Jev) instead of text-generating LLMs. A decision prompt (`kind: SYSTEM_ONE`, fixed at creation) is a **set of question templates**. Each question is rendered on its own with its inputs; the calling code decides which questions to ask, how many times, under which keys, against which state, and calls the provider. The model answers each question with a typed value; it never generates text.
 
 | Question type | Criteria | Answer |
 |---|---|---|
 | `noul` | optional `{true: …, false: …}` | `{type: noul, noul: 0..1}` |
-| `choice` | required map `option → description \| null` (2–255) | `{type: choice, choice, probabilities, confidence}` |
-| `score` | required ordered list of levels (2–10) | `{type: score, score, legend, probabilities, confidence}` |
+| `choice` | map `option → description \| null` (2–255 in total) | `{type: choice, choice, probabilities, confidence}` |
+| `score` | ordered list of levels (2–10) | `{type: score, score, legend, probabilities, confidence}` |
 
 ```bash
 sufleur prompt create @workspace/ticket-triage --kind system-one   # seeds one noul question on jev-latest
@@ -381,13 +381,18 @@ sufleur prompt create @workspace/ticket-triage --kind system-one   # seeds one n
 A dumped decision prompt has a `decision.yaml` next to `files/`:
 
 ```yaml
-stateFile: state              # optional; omit to have callers pass the state themselves
-questions:                    # order is kept everywhere (codegen, answers, UI)
+questions:                     # order is kept everywhere (codegen, answers, UI)
   department:
     type: choice
-    criteria:
-      billing: Payments, invoicing, refunds
+    criteria:                  # string values are Mustache templates (same inputs as the file)
+      billing: Payments for {{{product}}}
       technical: null
+  about:
+    type: choice
+    criteria:
+      none: no listed concept fits
+    optionCriteria:            # callers may add options; each is described by this template
+      what: the belief is about "{{{name}}}"
   frustration:
     type: score
     criteria: [Calm, Frustrated, Very angry]
@@ -395,30 +400,46 @@ questions:                    # order is kept everywhere (codegen, answers, UI)
     type: noul
 ```
 
-* **Each question id is also a file:** `files/department.mustache` holds that question's instructions. Question ids must be identifiers (letters, digits, `_`). Apply the spec with `sufleur version set-decision-spec @workspace/name@draft --from-file decision.yaml`. This creates any missing question/state files and turns dropped ones into partials. Never create or delete those entrypoints by hand.
-* **`output-schema.json` is derived** from the questions (the shape of the answers object) and is read-only. Eval `schema` assertions and CEL (`output.department.choice == "billing"`, `output.isUrgent.noul > 0.7`) type-check against it.
-* **State:** with no `stateFile`, callers pass the state (string, object or list) at call time. With a state file, the state is rendered from that file's template inputs instead.
-* **YAML format files** (`files/<name>.yaml.mustache`, or `--format yaml` on `file create|update`): the file is YAML *data* whose string values are Mustache templates, rendered one by one (parse first, then render). A value that is exactly one tag, e.g. `ticket: "{{ticket}}"`, passes the input through as-is (objects and lists stay structured). Always quote Mustache tags in YAML. YAML is allowed only on question and state files, and gives structured state or structured instructions:
-
-  ```yaml
-  # files/state.yaml.mustache
-  ticket: "{{ticket}}"
-  customer:
-    tier: "{{tier}}"
-  refund_policy: "{{> refund_policy}}"   # a plain-text partial
-  ```
-
-* **`{{@field path}}`** references a state field in question instructions and renders to `` `path` `` (TypeSafe's reference syntax), e.g. `Is {{@field ticket.messages[0].text}} urgent?`. Paths are checked against a YAML state file's keys, and a bad path blocks publishing. For prompts without a state file, the referenced paths become the inferred **state schema**, the shape callers must send.
+* **Each question id is also a file:** `files/department.mustache` holds that question's instructions. Question ids must be identifiers (letters, digits, `_`). Apply the spec with `sufleur version set-decision-spec @workspace/name@draft --from-file decision.yaml`; it creates missing question files and turns dropped ones into partials. Never create or delete those entrypoints by hand.
+* **Criteria are templates:** every string value in `criteria` and `optionCriteria` is rendered with Mustache, using the question's inputs (`optionCriteria` uses each added option's own inputs). Keys (the possible answers) are never templated. Criteria variables count as question inputs.
+* **Use `{{{var}}}`** to insert values: `{{var}}` HTML-escapes them (`&` → `&amp;`), and the escaping differs between the TS, Python and Go runtimes.
+* **Referencing the state:** write Jev's backticked paths yourself, e.g. ``Is `ticket.body` urgent?`` or `` `{{{article}}}` ``. The state is whatever JSON the caller sends; Sufleur does not store or infer its shape.
+* **Open choices:** with `optionCriteria`, callers add options at request time (`options` in the batch, `--options` in render). The answer's `choice` is then any string; without it the options are a closed set. At least 2 options in total are required when rendering.
+* **`output-schema.json` is derived:** one answer schema per question (`properties.<questionId>`), read-only.
+* **YAML format files** (`files/<name>.yaml.mustache`, or `--format yaml` on `file create|update`): the instructions are YAML *data* whose string values are Mustache templates, rendered one by one. A value that is exactly one tag, e.g. `ticket: "{{ticket}}"`, passes the input through as-is. Always quote Mustache tags in YAML.
 * **Model config:** provider `typesafe`, model e.g. `jev-latest`, no parameters: `sufleur version set-model-config @workspace/name@draft --provider typesafe --model jev-latest`.
-* **Render the full request** from a dump by omitting `--entrypoint`:
+* **Render one question** from a dump — exactly what goes under `questions.<key>` in a request:
 
   ```bash
-  sufleur prompt render ./working --state '{"ticket":{"subject":"Charged twice"}}'        # no state file
-  sufleur prompt render ./working --vars '{"state":{"ticket":{...}},"department":{...}}'  # per-file inputs
+  sufleur prompt render ./working --question department --vars '{"product":"Acme"}'
+  sufleur prompt render ./working --question about --options '{"k01":{"name":"functor"},"k02":{"name":"monad"}}'
   ```
 
-* **Evals** map the state with a CEL expression: `prompt.inputMapping.state: case.ticket`. Files carry `inputs` but no `role`. With a state file, map that file's inputs under `files` instead. Decision prompts cannot be judges.
-* **Generated code** exposes `getDecision('@workspace/name')` (TS) / `get_decision(...)` (Python) with `buildRequest({ state | stateInputs, questionInputs })` → the `POST /v1/systemone` body, and `parseResponse(raw)` → typed answers (choice options are literal unions).
+* **Evals** list the questions every dataset case asks (sent together in one request) and map the state with CEL:
+
+  ```yaml
+  prompt:
+    inputMapping:
+      state: case.ticket
+      questions:
+        - question: department
+          inputs: { product: case.product }
+        - question: same
+          key: n01                     # ask a question more than once under distinct keys
+          inputs: { term: case.term }
+        - question: about
+          options: case.options        # map of option key → option inputs (open choices only)
+  assertions:
+    - kind: expression
+      expression: output.department.choice == case.team && output.n01.probabilities.same >= 0.7
+  ```
+
+  `output.<key>` is that question's answer (key defaults to the question id). Decision prompts cannot be judges.
+* **Semver:** removing or retyping a question, changing its fixed options, a new required input (also via criteria), and adding or removing `optionCriteria` are major. Adding a question or rewording text is minor — but wording changes what Jev answers, so re-run the eval.
+* **Generated code** exposes `getDecision('@workspace/name')` (TS) / `get_decision(...)` (Python):
+  - `batch()` → `ask(questionId, inputs, { key?, options? })` returns a typed handle; `items()` lists the rendered questions to send; `read(answers)` validates each answer (partial: `get(handle)` / `getOrThrow(handle)`), `readAll(answers)` is all-or-nothing. Keys default to the question id; a repeated key throws.
+  - `question(id, inputs, { options })` renders one question; `parseAnswer(id, raw)` validates one answer; `metadata` holds `version` and `modelConfig`.
+  - There is no provider request/response shape: build `{ model, state, questions }` yourself (TypeSafe `POST /v1/systemone`, OpenRouter `/api/alpha/decisions`) and pass the response's `answers` to `read`.
 
 ## Tool contracts in generated code
 
@@ -609,7 +630,7 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Delete file | `sufleur file delete @workspace/name@draft --name welcome` |
 | Mark/clear entrypoint | `sufleur file set-entrypoint @workspace/name@draft --name welcome [--clear]` |
 | Render locally | `sufleur prompt render ./dir --entrypoint NAME --vars '{...}'` |
-| Render a decision request | `sufleur prompt render ./dir [--state '{...}'] [--vars '{"file":{...}}']` |
+| Render a decision question | `sufleur prompt render ./dir --question ID [--vars '{...}'] [--options '{...}']` |
 | Get eval YAML | `sufleur eval get @workspace/name@version [--file PATH]` |
 | Validate eval | `sufleur eval validate @workspace/name@draft --file ./eval.yaml` |
 | Push eval | `sufleur eval push @workspace/name@draft --file ./eval.yaml` |

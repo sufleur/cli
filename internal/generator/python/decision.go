@@ -10,23 +10,31 @@ import (
 	"github.com/sufleur/cli/internal/generator"
 )
 
+// decisionQuestionData is one question template of a decision prompt.
+type decisionQuestionData struct {
+	ID        string
+	IDLiteral string
+	// InputsType is the TypedDict of the question's template inputs, or "" when
+	// it has none (the argument is then optional).
+	InputsType string
+	// Open reports an open choice: callers may add options.
+	Open bool
+	// OptionInputsType is the TypedDict of one added option's inputs
+	// ("dict[str, Any]" when the option template has no variables).
+	OptionInputsType string
+	AnswerClass      string
+}
+
 // decisionTemplateData is one SYSTEM_ONE decision prompt.
 type decisionTemplateData struct {
-	Name         string
-	PascalName   string
-	Description  string
-	Version      string
-	Status       string
-	AnswersModel string // pydantic class definitions
-	AnswersClass string
-	TypedDicts   []typedDictClass
-	HasStateFile bool
-	// StateType types the caller's raw state (from the inferred state schema);
-	// StateInputsType types the state file's template inputs.
-	StateType            string
-	StateInputsType      string
-	QuestionInputsType   string // "" when no question has template variables
-	QuestionIDsLiteral   string
+	Name                 string
+	PascalName           string
+	Description          string
+	Version              string
+	Status               string
+	AnswerModels         string // pydantic class definitions for every question's answer
+	TypedDicts           []typedDictClass
+	Questions            []decisionQuestionData
 	DefJSONStringLiteral string
 }
 
@@ -46,9 +54,10 @@ type decisionYAMLFile struct {
 }
 
 type decisionQuestionDef struct {
-	ID       string          `json:"id"`
-	Type     string          `json:"type"`
-	Criteria json.RawMessage `json:"criteria,omitempty"`
+	ID             string          `json:"id"`
+	Type           string          `json:"type"`
+	Criteria       json.RawMessage `json:"criteria,omitempty"`
+	OptionCriteria json.RawMessage `json:"optionCriteria,omitempty"`
 }
 
 type orderedJSON struct {
@@ -84,9 +93,13 @@ func (o orderedJSON) MarshalJSON() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+type decisionMetadata struct {
+	Version     string                 `json:"version"`
+	ModelConfig map[string]interface{} `json:"modelConfig"`
+}
+
 type decisionDef struct {
-	Model     string                `json:"model"`
-	StateFile *string               `json:"stateFile"`
+	Metadata  decisionMetadata      `json:"metadata"`
 	Questions []decisionQuestionDef `json:"questions"`
 	Files     orderedJSON           `json:"files"`
 	Partials  orderedJSON           `json:"partials"`
@@ -100,10 +113,6 @@ func marshalUnescaped(v interface{}) ([]byte, error) {
 		return nil, err
 	}
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
-}
-
-func prepareDecisionContent(content string, p generator.PromptData) string {
-	return generator.ResolveFieldDirectives(generator.ResolveDirectives(content, p))
 }
 
 func hasProperties(schema map[string]interface{}) bool {
@@ -121,84 +130,68 @@ func buildDecisionData(p generator.PromptData, analysis *inputAnalysis) (decisio
 		Version:     p.Version,
 		Status:      p.Status,
 	}
-	td.AnswersModel, td.AnswersClass = jsonSchemaToPydantic(p.OutputSchema, td.PascalName+"Answers")
 
 	filesByName := make(map[string]generator.PromptFile, len(p.Files))
 	for _, f := range p.Files {
 		filesByName[f.Name] = f
 	}
+	answerSchemas, _ := p.OutputSchema["properties"].(map[string]interface{})
 
-	def := decisionDef{}
-	if model, ok := p.ModelConfig["model"].(string); ok {
-		def.Model = model
+	modelConfig := p.ModelConfig
+	if modelConfig == nil {
+		modelConfig = map[string]interface{}{}
 	}
-	if spec.StateFile != "" {
-		stateFile := spec.StateFile
-		def.StateFile = &stateFile
-	}
+	def := decisionDef{Metadata: decisionMetadata{Version: p.Version, ModelConfig: modelConfig}}
 
-	emitFile := func(name string) error {
-		f, ok := filesByName[name]
+	var models []string
+	for _, q := range spec.Questions {
+		f, ok := filesByName[q.ID]
 		if !ok {
-			return fmt.Errorf("%s: decision spec file %q is missing from the version", dn, name)
+			return td, fmt.Errorf("%s: question file %q is missing from the version", dn, q.ID)
 		}
 		if f.Format == generator.FormatYAML {
 			tree, err := generator.ParseStructured(f.Content)
 			if err != nil {
-				return fmt.Errorf("%s: %s: %w", dn, name, err)
+				return td, fmt.Errorf("%s: %s: %w", dn, q.ID, err)
 			}
-			raw, err := tree.Map(func(s string) string { return prepareDecisionContent(s, p) }).MarshalJSON()
+			raw, err := tree.MarshalJSON()
 			if err != nil {
-				return err
+				return td, err
 			}
-			def.Files.add(name, decisionYAMLFile{Kind: "yaml", Tree: raw})
+			def.Files.add(q.ID, decisionYAMLFile{Kind: "yaml", Tree: raw})
 		} else {
-			def.Files.add(name, decisionTextFile{Kind: "text", Template: prepareDecisionContent(f.Content, p)})
+			def.Files.add(q.ID, decisionTextFile{Kind: "text", Template: f.Content})
 		}
-		return nil
-	}
+		def.Questions = append(def.Questions, decisionQuestionDef{
+			ID: q.ID, Type: q.Type, Criteria: q.Criteria, OptionCriteria: q.OptionCriteria,
+		})
 
-	var ids []string
-	var questionInputFields []typedDictField
-	for _, q := range spec.Questions {
-		ids = append(ids, pyStringLiteral(q.ID))
-		def.Questions = append(def.Questions, decisionQuestionDef{ID: q.ID, Type: q.Type, Criteria: q.Criteria})
-		if err := emitFile(q.ID); err != nil {
-			return td, err
-		}
-		if schema := filesByName[q.ID].InputSchema; hasProperties(schema) {
+		qPascal := td.PascalName + toPascalCase(q.ID)
+		qd := decisionQuestionData{ID: q.ID, IDLiteral: pyStringLiteral(q.ID), AnswerClass: "Any"}
+		if hasProperties(f.InputSchema) {
 			var classes []typedDictClass
-			typeName := collectTypedDicts(schema, td.PascalName+"_"+toPascalCase(q.ID)+"Input", &classes, true, analysis)
-			td.TypedDicts = append(td.TypedDicts, classes...)
-			questionInputFields = append(questionInputFields, typedDictField{Name: q.ID, Type: typeName})
-		}
-	}
-	td.QuestionIDsLiteral = "(" + strings.Join(ids, ", ") + ",)"
-	if len(questionInputFields) > 0 {
-		name := td.PascalName + "QuestionInputs"
-		td.TypedDicts = append(td.TypedDicts, typedDictClass{Name: name, Fields: questionInputFields})
-		td.QuestionInputsType = name
-	}
-
-	if spec.StateFile != "" {
-		td.HasStateFile = true
-		if err := emitFile(spec.StateFile); err != nil {
-			return td, err
-		}
-		td.StateInputsType = "dict[str, Any]"
-		if schema := filesByName[spec.StateFile].InputSchema; hasProperties(schema) {
-			var classes []typedDictClass
-			td.StateInputsType = collectTypedDicts(schema, td.PascalName+"StateInputs", &classes, true, analysis)
+			qd.InputsType = collectTypedDicts(f.InputSchema, qPascal+"Input", &classes, true, analysis)
 			td.TypedDicts = append(td.TypedDicts, classes...)
 		}
-	} else {
-		td.StateType = "Any"
-		if hasProperties(p.StateSchema) {
-			var classes []typedDictClass
-			td.StateType = collectTypedDicts(p.StateSchema, td.PascalName+"State", &classes, true, analysis)
-			td.TypedDicts = append(td.TypedDicts, classes...)
+		if q.IsOpenChoice() {
+			qd.Open = true
+			qd.OptionInputsType = "dict[str, Any]"
+			if hasProperties(f.OptionInputSchema) {
+				var classes []typedDictClass
+				qd.OptionInputsType = collectTypedDicts(f.OptionInputSchema, qPascal+"OptionInput", &classes, true, analysis)
+				td.TypedDicts = append(td.TypedDicts, classes...)
+			}
 		}
+		if schema, ok := answerSchemas[q.ID].(map[string]interface{}); ok {
+			model, class := jsonSchemaToPydantic(schema, qPascal+"Answer")
+			if model != "" {
+				models = append(models, model)
+			}
+			qd.AnswerClass = class
+		}
+		td.Questions = append(td.Questions, qd)
 	}
+	td.AnswerModels = strings.Join(models, "\n\n")
 
 	var partialNames []string
 	for _, f := range p.Files {
@@ -208,7 +201,7 @@ func buildDecisionData(p generator.PromptData, analysis *inputAnalysis) (decisio
 	}
 	sort.Strings(partialNames)
 	for _, name := range partialNames {
-		def.Partials.add(name, prepareDecisionContent(filesByName[name].Content, p))
+		def.Partials.add(name, filesByName[name].Content)
 	}
 
 	raw, err := marshalUnescaped(def)
@@ -231,19 +224,87 @@ func buildDecisionContext(prompts []generator.PromptData, analysis *inputAnalysi
 	return ctx, nil
 }
 
+// decisionIdentifiers are the module-level names a decision prompt claims.
+func decisionIdentifiers(d decisionTemplateData) []string {
+	ids := []string{"_" + d.PascalName + "Decision", "_" + d.PascalName + "Batch"}
+	for _, c := range d.TypedDicts {
+		ids = append(ids, c.Name)
+	}
+	for _, q := range d.Questions {
+		if q.AnswerClass != "Any" && !strings.Contains(q.AnswerClass, "[") {
+			ids = append(ids, q.AnswerClass)
+		}
+	}
+	return ids
+}
+
 var decisionTemplate = `
 
 # ─── Decision Prompts (System-One) ────────────────────────────────────────────
 #
-# Decision prompts target System-One models such as TypeSafe Jev: typed
-# noul / choice / score questions evaluated against one state. get_decision()
-# builds the request body (POST /v1/systemone) and validates the answers.
+# Decision prompts are question templates for System-One models such as
+# TypeSafe Jev: typed noul / choice / score questions. Render a question with
+# question(), or collect several with batch(); send them to your provider
+# together with your own state; read the answers back with parse_answer() or
+# the batch's read(). No provider request or response shape lives here.
+
+_A = TypeVar("_A")
 
 
-class DecisionParseFailure(TypedDict):
-    error: str
-    code: Literal["schema-validation"]
-    success: Literal[False]
+class DecisionHandle(Generic[_A]):
+    """Returned by batch.ask(); reads the same question's answer back."""
+
+    __slots__ = ("key", "question_id", "question")
+
+    def __init__(self, key: str, question_id: str, question: dict[str, Any]) -> None:
+        self.key = key
+        self.question_id = question_id
+        self.question = question
+
+
+class AnswerResult(Generic[_A]):
+    """One answer: success with data, or failure with an error."""
+
+    __slots__ = ("success", "data", "error")
+
+    def __init__(self, success: bool, data: Optional[_A] = None, error: Optional[str] = None) -> None:
+        self.success = success
+        self.data = data
+        self.error = error
+
+
+class DecisionAnswers:
+    """Partial read: every answer that validated, plus every problem."""
+
+    def __init__(self, results: dict[int, AnswerResult[Any]], errors: list[str]) -> None:
+        self._results = results
+        self.errors = errors
+
+    def get(self, handle: DecisionHandle[_A]) -> AnswerResult[_A]:
+        result = self._results.get(id(handle))
+        if result is None:
+            raise KeyError("[sufleur] this handle was not asked in this batch")
+        return result
+
+    def get_or_throw(self, handle: DecisionHandle[_A]) -> _A:
+        result = self.get(handle)
+        if not result.success:
+            raise ValueError(result.error)
+        return result.data  # type: ignore[return-value]
+
+
+class DecisionReadAllResult:
+    """All-or-nothing read: success only when every answer validated."""
+
+    def __init__(self, answers: Optional[DecisionAnswers], errors: list[str]) -> None:
+        self.success = answers is not None
+        self.errors = errors
+        self._answers = answers
+
+    def get(self, handle: DecisionHandle[_A]) -> _A:
+        if self._answers is None:
+            raise ValueError("[sufleur] the answers did not validate: " + "; ".join(self.errors))
+        return self._answers.get_or_throw(handle)
 
 
 _WHOLE_VALUE_RE = re.compile({{.WholeValuePatternLiteral}})
@@ -273,35 +334,146 @@ def _render_tree(tree: Any, view: dict[str, Any], render: Any) -> Any:
     return tree
 
 
-def _render_decision_file(file: dict[str, Any], view: dict[str, Any], partials: dict[str, str]) -> Any:
-    def render(template: str) -> str:
-        return chevron.render(template, view, partials_dict=partials)
+def _render_entry(entry: Any, render: Any) -> Any:
+    # Criteria: every string is a template; keys and other values pass through.
+    if isinstance(entry, str):
+        return render(entry)
+    if isinstance(entry, list):
+        return [_render_entry(item, render) for item in entry]
+    if isinstance(entry, dict):
+        return {k: _render_entry(v, render) for k, v in entry.items()}
+    return entry
 
-    if file["kind"] == "text":
-        return render(file["template"])
-    return _render_tree(file["tree"], view, render)
 
-
-def _build_decision_request(
+def _render_question(
     definition: dict[str, Any],
-    state: Any,
-    state_inputs: Any,
-    question_inputs: Any,
+    question_id: str,
+    inputs: Optional[Mapping[str, Any]] = None,
+    options: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> dict[str, Any]:
-    state_file = definition["stateFile"]
-    if state_file is not None:
-        state = _render_decision_file(definition["files"][state_file], dict(state_inputs or {}), definition["partials"])
-    questions: dict[str, Any] = {}
-    for q in definition["questions"]:
-        view = dict((question_inputs or {}).get(q["id"]) or {})
-        entry: dict[str, Any] = {
-            "type": q["type"],
-            "instructions": _render_decision_file(definition["files"][q["id"]], view, definition["partials"]),
-        }
-        if "criteria" in q:
-            entry["criteria"] = q["criteria"]
-        questions[q["id"]] = entry
-    return {"model": definition["model"], "state": state, "questions": questions}
+    q = next((item for item in definition["questions"] if item["id"] == question_id), None)
+    file = definition["files"].get(question_id)
+    if q is None or file is None:
+        raise KeyError('[sufleur] unknown question "' + question_id + '"')
+    partials = definition["partials"]
+
+    def renderer(view: Mapping[str, Any]) -> Any:
+        return lambda template: chevron.render(template, dict(view), partials_dict=partials)
+
+    view = dict(inputs or {})
+    if file["kind"] == "text":
+        instructions = renderer(view)(file["template"])
+    else:
+        instructions = _render_tree(file["tree"], view, renderer(view))
+    rendered: dict[str, Any] = {"type": q["type"], "instructions": instructions}
+    if "criteria" in q:
+        rendered["criteria"] = _render_entry(q["criteria"], renderer(view))
+
+    added = list((options or {}).items())
+    if q["type"] != "choice":
+        if added:
+            raise ValueError('[sufleur] "' + question_id + '" is a ' + q["type"] + " question: it takes no options")
+        return rendered
+    if added and "optionCriteria" not in q:
+        raise ValueError(
+            '[sufleur] "' + question_id + '" has a fixed set of options: add optionCriteria to let callers add options'
+        )
+    criteria = dict(rendered.get("criteria") or {})
+    for key, option_inputs in added:
+        if key.strip() == "" or len(key) > 255:
+            raise ValueError('[sufleur] "' + question_id + '": option keys must be non-blank and at most 255 characters')
+        if key in criteria:
+            raise ValueError('[sufleur] "' + question_id + '": option "' + key + '" is already one of the fixed options')
+        criteria[key] = _render_entry(q["optionCriteria"], renderer(option_inputs or {}))
+    if len(criteria) < 2 or len(criteria) > 255:
+        raise ValueError(
+            '[sufleur] "' + question_id + '": a choice needs between 2 and 255 options (this one has '
+            + str(len(criteria)) + ")"
+        )
+    rendered["criteria"] = criteria
+    return rendered
+
+
+class _DecisionBase:
+    _name: str
+    _definition: dict[str, Any]
+    _answer_types: dict[str, Any]
+    _draft: bool
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        """The version and recommended model config, like get_prompt(...).metadata."""
+        metadata: dict[str, Any] = self._definition["metadata"]
+        return metadata
+
+    @property
+    def question_ids(self) -> tuple[str, ...]:
+        return tuple(q["id"] for q in self._definition["questions"])
+
+    def _parse(self, question_id: str, raw: Any) -> AnswerResult[Any]:
+        answer_type = self._answer_types.get(question_id)
+        if answer_type is None:
+            raise KeyError('[sufleur] unknown question "' + question_id + '"')
+        try:
+            return AnswerResult(True, data=TypeAdapter(answer_type).validate_python(raw))
+        except ValidationError as e:
+            return AnswerResult(False, error="[" + question_id + "] " + str(e))
+
+
+class _BatchBase:
+    def __init__(self, decision: _DecisionBase) -> None:
+        self._decision = decision
+        self._asked: dict[str, DecisionHandle[Any]] = {}
+
+    def _ask(
+        self,
+        question_id: str,
+        inputs: Optional[Mapping[str, Any]],
+        key: Optional[str],
+        options: Optional[Mapping[str, Mapping[str, Any]]],
+    ) -> DecisionHandle[Any]:
+        k = key if key is not None else question_id
+        if k in self._asked:
+            raise ValueError(
+                '[sufleur] key "' + k + '" is already used in this batch: give repeated questions distinct keys'
+            )
+        handle: DecisionHandle[Any] = DecisionHandle(
+            k, question_id, _render_question(self._decision._definition, question_id, inputs, options)
+        )
+        self._asked[k] = handle
+        return handle
+
+    def items(self) -> list[tuple[str, str, dict[str, Any]]]:
+        """Every asked question, in order, as (key, question_id, question)."""
+        return [(h.key, h.question_id, h.question) for h in self._asked.values()]
+
+    def _collect(self, answers: Mapping[str, Any]) -> tuple[dict[int, AnswerResult[Any]], list[str]]:
+        results: dict[int, AnswerResult[Any]] = {}
+        errors: list[str] = []
+        for k, handle in self._asked.items():
+            if k not in answers:
+                error = "[" + k + "] no answer"
+                errors.append(error)
+                results[id(handle)] = AnswerResult(False, error=error)
+                continue
+            parsed = self._decision._parse(handle.question_id, answers[k])
+            if not parsed.success:
+                error = str(parsed.error) if k == handle.question_id else k + " " + str(parsed.error)
+                errors.append(error)
+                results[id(handle)] = AnswerResult(False, error=error)
+            else:
+                results[id(handle)] = parsed
+        return results, errors
+
+    def read(self, answers: Mapping[str, Any]) -> DecisionAnswers:
+        """Match answers back by key; keeps every answer that validated."""
+        results, errors = self._collect(answers)
+        return DecisionAnswers(results, errors)
+
+    def read_all(self, answers: Mapping[str, Any]) -> DecisionReadAllResult:
+        """Match answers back by key; fails unless every answer validated."""
+        results, errors = self._collect(answers)
+        return DecisionReadAllResult(None if errors else DecisionAnswers(results, errors), errors)
 {{range .Decisions}}
 # ─── Decision {{.Name}} ────────────────────────────────────────────────
 {{range .TypedDicts}}
@@ -314,18 +486,31 @@ class {{.Name}}(TypedDict):
     {{- end}}
 {{- end}}
 {{end}}
+{{if .AnswerModels}}
+{{.AnswerModels}}
+{{end}}
 
-{{.AnswersModel}}
+class _{{.PascalName}}Batch(_BatchBase):
+{{- range .Questions}}
+    @overload
+    def ask(
+        self,
+        question_id: Literal[{{.IDLiteral}}],
+        {{if .InputsType}}inputs: {{.InputsType}}{{else}}inputs: Optional[dict[str, Any]] = None{{end}},
+        *,
+        key: Optional[str] = None,
+{{- if .Open}}
+        options: Optional[Mapping[str, {{.OptionInputsType}}]] = None,
+{{- end}}
+    ) -> DecisionHandle[{{.AnswerClass}}]: ...
+{{- end}}
 
-class _{{.PascalName}}DecisionParseSuccess(TypedDict):
-    data: {{.AnswersClass}}
-    success: Literal[True]
+    def ask(self, question_id: Any, inputs: Any = None, *, key: Optional[str] = None, options: Any = None) -> Any:
+        """Ask a question under key (default: its question id); returns a typed handle."""
+        return self._ask(question_id, inputs, key, options)
 
 
-_{{.PascalName}}_DECISION: dict[str, Any] = json.loads({{.DefJSONStringLiteral}})
-
-
-class _{{.PascalName}}Decision:
+class _{{.PascalName}}Decision(_DecisionBase):
     {{- if .Description}}
     """{{pyDocstring .Description}}
 
@@ -333,37 +518,42 @@ class _{{.PascalName}}Decision:
     """
     {{- end}}
 
-    question_ids: tuple[str, ...] = {{.QuestionIDsLiteral}}
-    model: str = _{{.PascalName}}_DECISION["model"]
-
-    def build_request(
+    _name = "{{.Name}}"
+    _definition: dict[str, Any] = json.loads({{.DefJSONStringLiteral}})
+    _answer_types: dict[str, Any] = {
+{{- range .Questions}}
+        {{.IDLiteral}}: {{.AnswerClass}},
+{{- end}}
+    }
+    _draft = {{if eq .Status "DRAFT"}}True{{else}}False{{end}}
+{{range .Questions}}
+    @overload
+    def question(
         self,
+        question_id: Literal[{{.IDLiteral}}],
+        {{if .InputsType}}inputs: {{.InputsType}}{{else}}inputs: Optional[dict[str, Any]] = None{{end}},
+{{- if .Open}}
         *,
-{{- if .HasStateFile}}
-        state_inputs: {{.StateInputsType}},
-{{- else}}
-        state: {{.StateType}},
+        options: Optional[Mapping[str, {{.OptionInputsType}}]] = None,
 {{- end}}
-{{- if .QuestionInputsType}}
-        question_inputs: {{.QuestionInputsType}},
+    ) -> dict[str, Any]: ...
 {{- end}}
-    ) -> dict[str, Any]:
-        """Build the request body for the System-One API (POST /v1/systemone)."""
-        return _build_decision_request(
-            _{{.PascalName}}_DECISION,
-            {{if .HasStateFile}}None{{else}}state{{end}},
-            {{if .HasStateFile}}state_inputs{{else}}None{{end}},
-            {{if .QuestionInputsType}}question_inputs{{else}}None{{end}},
-        )
 
-    def parse_response(self, raw: Any) -> _{{.PascalName}}DecisionParseSuccess | DecisionParseFailure:
-        """Validate a response (or its answers object) against the typed answers model."""
-        candidate = raw["answers"] if isinstance(raw, dict) and "answers" in raw else raw
-        try:
-            validated = {{.AnswersClass}}.model_validate(candidate)
-        except ValidationError as e:
-            return {"error": str(e), "code": "schema-validation", "success": False}
-        return {"data": validated, "success": True}
+    def question(self, question_id: Any, inputs: Any = None, *, options: Any = None) -> Any:
+        """Render one question into what a System-One API takes under questions.<key>."""
+        return _render_question(self._definition, question_id, inputs, options)
+{{range .Questions}}
+    @overload
+    def parse_answer(self, question_id: Literal[{{.IDLiteral}}], raw: Any) -> AnswerResult[{{.AnswerClass}}]: ...
+{{- end}}
+
+    def parse_answer(self, question_id: Any, raw: Any) -> Any:
+        """Validate one raw answer against the question's answer type."""
+        return self._parse(question_id, raw)
+
+    def batch(self) -> _{{.PascalName}}Batch:
+        """Start a batch of questions."""
+        return _{{.PascalName}}Batch(self)
 {{end}}
 DecisionName = Literal[{{range $i, $d := .Decisions}}{{if $i}}, {{end}}"{{$d.Name}}"{{end}}]
 
@@ -372,23 +562,24 @@ _decisions: dict[str, Any] = {
     "{{.Name}}": _{{.PascalName}}Decision,
 {{- end}}
 }
+{{if eq (len .Decisions) 1}}{{with index .Decisions 0}}
 
-_draft_decisions: set[str] = set([
-{{- range .Decisions}}
-{{- if eq .Status "DRAFT"}}
-    "{{.Name}}",
-{{- end}}
-{{- end}}
-])
-{{range .Decisions}}
+def get_decision(name: Literal["{{.Name}}"]) -> _{{.PascalName}}Decision:
+    """Get a decision prompt: question(), parse_answer() and batch()."""
+    decision = _{{.PascalName}}Decision()
+    if decision._draft:
+        warnings.warn(f'[sufleur] Warning: decision prompt "{name}" is a draft version', stacklevel=2)
+    return decision
+{{end}}{{else}}{{range .Decisions}}
 
 @overload
 def get_decision(name: Literal["{{.Name}}"]) -> _{{.PascalName}}Decision: ...
 {{end}}
 
 def get_decision(name: DecisionName) -> Any:
-    """Get a typed decision prompt: build_request(...) and parse_response(raw)."""
-    if name in _draft_decisions:
+    """Get a decision prompt: question(), parse_answer() and batch()."""
+    decision = _decisions[name]()
+    if decision._draft:
         warnings.warn(f'[sufleur] Warning: decision prompt "{name}" is a draft version', stacklevel=2)
-    return _decisions[name]()
-`
+    return decision
+{{end}}`

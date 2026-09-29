@@ -10,6 +10,21 @@ import (
 	"github.com/sufleur/cli/internal/generator"
 )
 
+// decisionQuestionData is one question template of a decision prompt.
+type decisionQuestionData struct {
+	ID string
+	// Type is "noul" | "choice" | "score".
+	Type string
+	// InputsType is the TypeScript type of the question's template inputs
+	// (instructions + criteria); "Record<string, never>" when it has none.
+	InputsType string
+	// OptionInputsType is set only for open choices: the inputs of one added option.
+	OptionInputsType string
+	// AnswerSchemaName / AnswerZod: the Zod schema of one answer.
+	AnswerSchemaName string
+	AnswerZod        string
+}
+
 // decisionTemplateData is one SYSTEM_ONE decision prompt.
 type decisionTemplateData struct {
 	Name        string
@@ -17,17 +32,8 @@ type decisionTemplateData struct {
 	Description string
 	Version     string
 	Status      string
-	AnswersZod  string
-	// Raw-state prompts type the caller's state from the inferred state schema;
-	// prompts with a state file type the state file's template inputs instead.
-	HasStateFile   bool
-	StateType      string
-	StateInputType string
-	// QuestionInputsType lists the questions whose instructions have Mustache
-	// variables. Empty when none do.
-	QuestionInputsType string
-	QuestionIDs        []string
-	DefJSON            string
+	Questions   []decisionQuestionData
+	DefJSON     string
 }
 
 type decisionTextFile struct {
@@ -43,18 +49,22 @@ type decisionYAMLFile struct {
 // decisionDef is the runtime definition emitted per decision prompt. Field
 // order is fixed so the generated file is deterministic.
 type decisionDef struct {
-	Model     string                  `json:"model"`
-	StateFile *string                 `json:"stateFile"`
-	Questions []decisionQuestionDef   `json:"questions"`
-	Files     orderedJSON             `json:"files"`
-	Partials  orderedJSON             `json:"partials"`
-	Spec      *generator.DecisionSpec `json:"-"`
+	Metadata  decisionMetadata      `json:"metadata"`
+	Questions []decisionQuestionDef `json:"questions"`
+	Files     orderedJSON           `json:"files"`
+	Partials  orderedJSON           `json:"partials"`
+}
+
+type decisionMetadata struct {
+	Version     string                 `json:"version"`
+	ModelConfig map[string]interface{} `json:"modelConfig"`
 }
 
 type decisionQuestionDef struct {
-	ID       string          `json:"id"`
-	Type     string          `json:"type"`
-	Criteria json.RawMessage `json:"criteria,omitempty"`
+	ID             string          `json:"id"`
+	Type           string          `json:"type"`
+	Criteria       json.RawMessage `json:"criteria,omitempty"`
+	OptionCriteria json.RawMessage `json:"optionCriteria,omitempty"`
 }
 
 // orderedJSON is a JSON object whose members are emitted in the given order.
@@ -91,12 +101,6 @@ func (o *orderedJSON) add(key string, value interface{}) {
 	o.values = append(o.values, value)
 }
 
-// prepareDecisionContent resolves both platform directives the way the backend
-// does before rendering: {{@outputSchema}} and {{@field path}}.
-func prepareDecisionContent(content string, p generator.PromptData) string {
-	return generator.ResolveFieldDirectives(generator.ResolveDirectives(content, p))
-}
-
 func buildDecisionData(p generator.PromptData) (decisionTemplateData, error) {
 	dn := displayName(p)
 	spec := p.DecisionSpec
@@ -106,76 +110,62 @@ func buildDecisionData(p generator.PromptData) (decisionTemplateData, error) {
 		Description: p.Description,
 		Version:     p.Version,
 		Status:      p.Status,
-		AnswersZod:  "z.record(z.string(), z.unknown())",
-	}
-	if p.OutputSchema != nil {
-		td.AnswersZod = jsonSchemaToZod(p.OutputSchema, 0)
 	}
 
 	filesByName := make(map[string]generator.PromptFile, len(p.Files))
 	for _, f := range p.Files {
 		filesByName[f.Name] = f
 	}
+	answerSchemas, _ := p.OutputSchema["properties"].(map[string]interface{})
 
-	def := decisionDef{}
-	if model, ok := p.ModelConfig["model"].(string); ok {
-		def.Model = model
+	modelConfig := p.ModelConfig
+	if modelConfig == nil {
+		modelConfig = map[string]interface{}{}
 	}
-	if spec.StateFile != "" {
-		stateFile := spec.StateFile
-		def.StateFile = &stateFile
-	}
+	def := decisionDef{Metadata: decisionMetadata{Version: p.Version, ModelConfig: modelConfig}}
 
-	emitFile := func(name string) error {
-		f, ok := filesByName[name]
+	for _, q := range spec.Questions {
+		f, ok := filesByName[q.ID]
 		if !ok {
-			return fmt.Errorf("%s: decision spec file %q is missing from the version", dn, name)
+			return td, fmt.Errorf("%s: question file %q is missing from the version", dn, q.ID)
 		}
 		if f.Format == generator.FormatYAML {
 			tree, err := generator.ParseStructured(f.Content)
 			if err != nil {
-				return fmt.Errorf("%s: %s: %w", dn, name, err)
+				return td, fmt.Errorf("%s: %s: %w", dn, q.ID, err)
 			}
-			raw, err := tree.Map(func(s string) string { return prepareDecisionContent(s, p) }).MarshalJSON()
+			raw, err := tree.MarshalJSON()
 			if err != nil {
-				return err
+				return td, err
 			}
-			def.Files.add(name, decisionYAMLFile{Kind: "yaml", Tree: raw})
+			def.Files.add(q.ID, decisionYAMLFile{Kind: "yaml", Tree: raw})
 		} else {
-			def.Files.add(name, decisionTextFile{Kind: "text", Template: prepareDecisionContent(f.Content, p)})
+			def.Files.add(q.ID, decisionTextFile{Kind: "text", Template: f.Content})
 		}
-		return nil
-	}
+		def.Questions = append(def.Questions, decisionQuestionDef{
+			ID: q.ID, Type: q.Type, Criteria: q.Criteria, OptionCriteria: q.OptionCriteria,
+		})
 
-	var questionInputs []string
-	for _, q := range spec.Questions {
-		td.QuestionIDs = append(td.QuestionIDs, q.ID)
-		def.Questions = append(def.Questions, decisionQuestionDef{ID: q.ID, Type: q.Type, Criteria: q.Criteria})
-		if err := emitFile(q.ID); err != nil {
-			return td, err
+		qd := decisionQuestionData{
+			ID:               q.ID,
+			Type:             q.Type,
+			InputsType:       "Record<string, never>",
+			AnswerSchemaName: td.PascalName + toPascalCase(q.ID) + "AnswerSchema",
+			AnswerZod:        "z.unknown()",
 		}
-		if schema := filesByName[q.ID].InputSchema; hasProperties(schema) {
-			questionInputs = append(questionInputs, fmt.Sprintf("  %s: %s;", q.ID, schemaToTSType(schema, 1)))
+		if hasProperties(f.InputSchema) {
+			qd.InputsType = schemaToTSType(f.InputSchema, 2)
 		}
-	}
-	if len(questionInputs) > 0 {
-		td.QuestionInputsType = "{\n" + strings.Join(questionInputs, "\n") + "\n}"
-	}
-
-	if spec.StateFile != "" {
-		td.HasStateFile = true
-		if err := emitFile(spec.StateFile); err != nil {
-			return td, err
+		if q.IsOpenChoice() {
+			qd.OptionInputsType = "Record<string, never>"
+			if hasProperties(f.OptionInputSchema) {
+				qd.OptionInputsType = schemaToTSType(f.OptionInputSchema, 2)
+			}
 		}
-		td.StateInputType = "Record<string, never>"
-		if schema := filesByName[spec.StateFile].InputSchema; hasProperties(schema) {
-			td.StateInputType = schemaToTSType(schema, 0)
+		if schema, ok := answerSchemas[q.ID].(map[string]interface{}); ok {
+			qd.AnswerZod = jsonSchemaToZod(schema, 0)
 		}
-	} else {
-		td.StateType = "unknown"
-		if p.StateSchema != nil {
-			td.StateType = schemaToTSType(p.StateSchema, 0)
-		}
+		td.Questions = append(td.Questions, qd)
 	}
 
 	var partialNames []string
@@ -186,7 +176,7 @@ func buildDecisionData(p generator.PromptData) (decisionTemplateData, error) {
 	}
 	sort.Strings(partialNames)
 	for _, name := range partialNames {
-		def.Partials.add(name, prepareDecisionContent(filesByName[name].Content, p))
+		def.Partials.add(name, filesByName[name].Content)
 	}
 
 	raw, err := marshalIndentUnescaped(def, "  ", "  ")
@@ -245,14 +235,9 @@ func buildDecisionContext(prompts []generator.PromptData) (decisionContext, erro
 
 // decisionIdentifiers are the exported names a decision prompt claims.
 func decisionIdentifiers(d decisionTemplateData) []string {
-	ids := []string{d.PascalName + "Answers", d.PascalName + "AnswersSchema", d.PascalName + "RequestArgs"}
-	if d.HasStateFile {
-		ids = append(ids, d.PascalName+"StateInputs")
-	} else {
-		ids = append(ids, d.PascalName+"State")
-	}
-	if d.QuestionInputsType != "" {
-		ids = append(ids, d.PascalName+"QuestionInputs")
+	ids := []string{d.PascalName + "Questions"}
+	for _, q := range d.Questions {
+		ids = append(ids, q.AnswerSchemaName)
 	}
 	return ids
 }
@@ -260,75 +245,119 @@ func decisionIdentifiers(d decisionTemplateData) []string {
 var decisionTemplate = `
 // ─── Decision Prompts (System-One) ────────────────────────────────────────────
 //
-// Decision prompts target System-One models such as TypeSafe Jev: typed
-// noul / choice / score questions evaluated against one state. getDecision()
-// builds the request body (POST /v1/systemone) and validates the answers.
+// Decision prompts are question templates for System-One models such as
+// TypeSafe Jev: typed noul / choice / score questions. Render a question with
+// question(), or collect several with batch(); send them to your provider
+// together with your own state; read the answers back with parseAnswer() or
+// the batch's read(). No provider request or response shape lives here.
 
 export type DecisionQuestionType = 'noul' | 'choice' | 'score';
+type _Criteria = string | Record<string, unknown> | unknown[] | null;
 
-export interface DecisionRequest {
-  model: string;
-  state: unknown;
-  questions: Record<string, { type: DecisionQuestionType; instructions: unknown; criteria?: unknown }>;
-}
+/** One rendered question: what a System-One API takes under questions.<key>. */
+export type RenderedQuestion<T extends DecisionQuestionType = DecisionQuestionType> = {
+  noul: { type: 'noul'; instructions: unknown; criteria?: { true?: _Criteria; false?: _Criteria } };
+  choice: { type: 'choice'; instructions: unknown; criteria: Record<string, _Criteria> };
+  score: { type: 'score'; instructions: unknown; criteria: _Criteria[] };
+}[T];
 
 export type DecisionParseResult<T> =
   | { success: true; data: T }
   | { success: false; error: string; code: 'schema-validation' };
-{{range .Decisions}}
-export const {{.PascalName}}AnswersSchema = {{.AnswersZod}};
 
-export type {{.PascalName}}Answers = z.infer<typeof {{.PascalName}}AnswersSchema>;
-{{if .HasStateFile}}
-export type {{.PascalName}}StateInputs = {{.StateInputType}};
-{{else}}
-export type {{.PascalName}}State = {{.StateType}};
-{{end}}
-{{- if .QuestionInputsType}}
-export type {{.PascalName}}QuestionInputs = {{.QuestionInputsType}};
-{{end}}
-export type {{.PascalName}}RequestArgs = {
-  {{if .HasStateFile}}stateInputs: {{.PascalName}}StateInputs;{{else}}state: {{.PascalName}}State;{{end}}
-  {{if .QuestionInputsType}}questionInputs: {{.PascalName}}QuestionInputs;{{else}}questionInputs?: Record<string, never>;{{end}}
-};
-{{end}}
-export type DecisionName ={{range .Decisions}} | '{{.Name}}'{{end}};
+export interface DecisionMetadata {
+  version: string;
+  /** The recommended model config, same shape as getPrompt(...).metadata.modelConfig. */
+  modelConfig: { provider?: string; model?: string; parameters?: Record<string, unknown> };
+}
 
-export interface DecisionMapping {
-{{- range .Decisions}}
-  '{{.Name}}': { args: {{.PascalName}}RequestArgs; answers: {{.PascalName}}Answers };
-{{- end}}
+interface _QuestionSpec {
+  type: DecisionQuestionType;
+  inputs: object;
+  answer: unknown;
+  optionInputs?: object;
+}
+type _QuestionMap<M> = { [K in keyof M]: _QuestionSpec };
+type _NoInputs = Record<string, never>;
+type _OptionInputs<S> = S extends { optionInputs: infer O } ? O : never;
+type _WithOptions<M> = { [K in keyof M]: M[K] extends { optionInputs: object } ? K : never }[keyof M];
+type _QuestionOptions<S> = [_OptionInputs<S>] extends [never] ? { options?: never } : { options?: Record<string, _OptionInputs<S>> };
+
+/** Returned by batch.ask(); reads the same question's answer back. A is its answer type. */
+export interface DecisionHandle<A> {
+  readonly key: string;
+  readonly questionId: string;
+  readonly question: RenderedQuestion;
+  /** Type-level only: carries the answer type. */
+  readonly __answer?: A;
+}
+
+export interface DecisionAskOptions<O> {
+  /** The key the question is sent (and answered) under. Default: its question id. */
+  key?: string;
+  /** Options to add to an open choice: option key → that option's template inputs. */
+  options?: [O] extends [never] ? never : Record<string, O>;
+}
+
+export type DecisionAnswerResult<A> = { success: true; data: A } | { success: false; error: string };
+
+/** Partial read: every answer that validated, plus every problem. */
+export interface DecisionAnswers {
+  errors: string[];
+  get<A>(handle: DecisionHandle<A>): DecisionAnswerResult<A>;
+  /** The answer, or throws when it is missing or invalid. */
+  getOrThrow<A>(handle: DecisionHandle<A>): A;
+}
+
+export type DecisionReadAllResult =
+  | { success: true; answers: { get<A>(handle: DecisionHandle<A>): A } }
+  | { success: false; errors: string[]; code: 'schema-validation' };
+
+/** Collects questions under keys and matches answers back. Never sees a request or response. */
+export interface DecisionBatch<M extends _QuestionMap<M>> {
+  ask<K extends keyof M & string>(
+    questionId: K,
+    ...args: M[K]['inputs'] extends _NoInputs
+      ? [inputs?: _NoInputs, opts?: DecisionAskOptions<_OptionInputs<M[K]>>]
+      : [inputs: M[K]['inputs'], opts?: DecisionAskOptions<_OptionInputs<M[K]>>]
+  ): DecisionHandle<M[K]['answer']>;
+  /** Every asked question, in order. Turn these into a provider request. */
+  items(): ReadonlyArray<{ key: string; questionId: keyof M & string; question: RenderedQuestion }>;
+  /** Match answers back by key; keeps every answer that validated. */
+  read(answers: Record<string, unknown>): DecisionAnswers;
+  /** Match answers back by key; fails unless every answer validated. */
+  readAll(answers: Record<string, unknown>): DecisionReadAllResult;
+}
+
+export interface Decision<M extends _QuestionMap<M>> {
+  metadata: DecisionMetadata;
+  questionIds: ReadonlyArray<keyof M & string>;
+  /** Render one question with its inputs (and, for an open choice, added options). */
+  question<K extends keyof M & string>(
+    id: K,
+    ...args: M[K]['inputs'] extends _NoInputs
+      ? [inputs?: _NoInputs, opts?: _QuestionOptions<M[K]>]
+      : [inputs: M[K]['inputs'], opts?: _QuestionOptions<M[K]>]
+  ): RenderedQuestion<M[K]['type']>;
+  /** Validate one raw answer against question id's answer schema. */
+  parseAnswer<K extends keyof M & string>(id: K, raw: unknown): DecisionParseResult<M[K]['answer']>;
+  /** Start a batch of questions. */
+  batch(): DecisionBatch<M>;
 }
 
 type _DecisionFile = { kind: 'text'; template: string } | { kind: 'yaml'; tree: unknown };
 
 interface _DecisionDef {
-  model: string;
-  stateFile: string | null;
-  questions: ReadonlyArray<{ id: string; type: DecisionQuestionType; criteria?: unknown }>;
+  metadata: DecisionMetadata;
+  questions: ReadonlyArray<{
+    id: string;
+    type: DecisionQuestionType;
+    criteria?: unknown;
+    optionCriteria?: unknown;
+  }>;
   files: Record<string, _DecisionFile>;
   partials: Record<string, string>;
 }
-
-const _decisions: Record<DecisionName, _DecisionDef> = {
-{{- range .Decisions}}
-  '{{.Name}}': {{.DefJSON}},
-{{- end}}
-};
-
-const _answerSchemas: Record<DecisionName, z.ZodType> = {
-{{- range .Decisions}}
-  '{{.Name}}': {{.PascalName}}AnswersSchema,
-{{- end}}
-};
-
-const _draftDecisions: Set<string> = new Set([
-{{- range .Decisions}}
-{{- if eq .Status "DRAFT"}}
-  '{{.Name}}',
-{{- end}}
-{{- end}}
-]);
 
 // A YAML value that is exactly one variable tag passes the input through as-is.
 const _wholeValueRe = new RegExp({{.WholeValuePatternJSON}});
@@ -361,74 +390,203 @@ const _renderTree = (tree: unknown, view: Record<string, unknown>, render: (t: s
   return tree;
 };
 
-const _renderDecisionFile = (
-  file: _DecisionFile,
-  view: Record<string, unknown>,
-  partials: Record<string, string>,
-): unknown => {
-  const render = (template: string): string => Mustache.render(template, view, partials);
-  return file.kind === 'text' ? render(file.template) : _renderTree(file.tree, view, render);
+// Criteria: every string is a template; keys and other values pass through.
+const _renderEntry = (entry: unknown, view: Record<string, unknown>, render: (t: string) => string): unknown => {
+  if (typeof entry === 'string') return render(entry);
+  if (Array.isArray(entry)) return entry.map((item) => _renderEntry(item, view, render));
+  if (entry !== null && typeof entry === 'object') {
+    return Object.fromEntries(
+      Object.entries(entry as Record<string, unknown>).map(([k, v]) => [k, _renderEntry(v, view, render)]),
+    );
+  }
+  return entry;
 };
 
-export interface DecisionResult<N extends DecisionName> {
-  /** Question ids in authored order — also the keys of the answers object. */
-  questionIds: readonly string[];
-  /** The System-One model this version was authored for. */
-  model: string;
-  /** Build the request body for the System-One API (POST /v1/systemone). */
-  buildRequest(args: DecisionMapping[N]['args']): DecisionRequest;
-  /** Validate a response (or its answers object) against the typed answers schema. */
-  parseResponse(raw: unknown): DecisionParseResult<DecisionMapping[N]['answers']>;
+function _renderQuestion(
+  def: _DecisionDef,
+  id: string,
+  inputs: Record<string, unknown> = {},
+  options?: Record<string, Record<string, unknown>>,
+): RenderedQuestion {
+  const q = def.questions.find((item) => item.id === id);
+  const file = def.files[id];
+  if (!q || !file) throw new Error('[sufleur] unknown question "' + id + '"');
+  const render = (view: Record<string, unknown>) => (template: string): string =>
+    Mustache.render(template, view, def.partials);
+  const instructions =
+    file.kind === 'text' ? render(inputs)(file.template) : _renderTree(file.tree, inputs, render(inputs));
+  const rendered: Record<string, unknown> = { type: q.type, instructions };
+  if (q.criteria !== undefined) rendered.criteria = _renderEntry(q.criteria, inputs, render(inputs));
+
+  const added = Object.entries(options ?? {});
+  if (q.type !== 'choice') {
+    if (added.length > 0) throw new Error('[sufleur] "' + id + '" is a ' + q.type + ' question: it takes no options');
+    return rendered as RenderedQuestion;
+  }
+  if (added.length > 0 && q.optionCriteria === undefined) {
+    throw new Error('[sufleur] "' + id + '" has a fixed set of options: add optionCriteria to let callers add options');
+  }
+  const criteria = { ...((rendered.criteria as Record<string, unknown>) ?? {}) };
+  for (const [key, optionInputs] of added) {
+    if (key.trim() === '' || key.length > 255) {
+      throw new Error('[sufleur] "' + id + '": option keys must be non-blank and at most 255 characters');
+    }
+    if (key in criteria) throw new Error('[sufleur] "' + id + '": option "' + key + '" is already one of the fixed options');
+    criteria[key] = _renderEntry(q.optionCriteria, optionInputs ?? {}, render(optionInputs ?? {}));
+  }
+  const total = Object.keys(criteria).length;
+  if (total < 2 || total > 255) {
+    throw new Error('[sufleur] "' + id + '": a choice needs between 2 and 255 options (this one has ' + total + ')');
+  }
+  rendered.criteria = criteria;
+  return rendered as RenderedQuestion;
 }
+
+function _createDecision<M extends _QuestionMap<M>>(
+  name: string,
+  def: _DecisionDef,
+  schemas: Record<string, z.ZodType>,
+  isDraft: boolean,
+): Decision<M> {
+  const parseAnswer = (id: string, raw: unknown): DecisionParseResult<unknown> => {
+    const schema = schemas[id];
+    if (!schema) throw new Error('[sufleur] unknown question "' + id + '"');
+    const validated = schema.safeParse(raw);
+    return validated.success
+      ? { success: true, data: validated.data }
+      : { success: false, error: '[' + id + '] ' + validated.error.message, code: 'schema-validation' };
+  };
+
+  const batch = () => {
+    type AnyHandle = DecisionHandle<unknown>;
+    const asked = new Map<string, AnyHandle>();
+
+    const ask = (
+      questionId: string,
+      inputs: Record<string, unknown> = {},
+      opts: { key?: string; options?: Record<string, Record<string, unknown>> } = {},
+    ): AnyHandle => {
+      const key = opts.key ?? questionId;
+      if (asked.has(key)) {
+        throw new Error('[sufleur] key "' + key + '" is already used in this batch: give repeated questions distinct keys');
+      }
+      const handle: AnyHandle = Object.freeze({
+        key,
+        questionId,
+        question: _renderQuestion(def, questionId, inputs, opts.options),
+      });
+      asked.set(key, handle);
+      return handle;
+    };
+
+    const items = () => [...asked.values()].map(({ key, questionId, question }) => ({ key, questionId, question }));
+
+    const collect = (answers: Record<string, unknown>) => {
+      const values = new Map<AnyHandle, DecisionAnswerResult<unknown>>();
+      const errors: string[] = [];
+      for (const [key, handle] of asked) {
+        if (!answers || !(key in answers)) {
+          const error = '[' + key + '] no answer';
+          errors.push(error);
+          values.set(handle, { success: false, error });
+          continue;
+        }
+        const parsed = parseAnswer(handle.questionId, answers[key]);
+        if (parsed.success) values.set(handle, { success: true, data: parsed.data });
+        else {
+          const error = key === handle.questionId ? parsed.error : key + ' ' + parsed.error;
+          errors.push(error);
+          values.set(handle, { success: false, error });
+        }
+      }
+      return { values, errors };
+    };
+    const lookup = (values: Map<AnyHandle, DecisionAnswerResult<unknown>>, handle: AnyHandle) => {
+      const result = values.get(handle);
+      if (!result) throw new Error('[sufleur] this handle was not asked in this batch');
+      return result;
+    };
+
+    const read = (answers: Record<string, unknown>): DecisionAnswers => {
+      const { values, errors } = collect(answers);
+      return {
+        errors,
+        get: (handle) => lookup(values, handle) as DecisionAnswerResult<never>,
+        getOrThrow: (handle) => {
+          const result = lookup(values, handle);
+          if (!result.success) throw new Error(result.error);
+          return result.data as never;
+        },
+      };
+    };
+
+    const readAll = (answers: Record<string, unknown>): DecisionReadAllResult => {
+      const { values, errors } = collect(answers);
+      if (errors.length > 0) return { success: false, errors, code: 'schema-validation' };
+      return {
+        success: true,
+        answers: { get: (handle) => (lookup(values, handle) as { data: unknown }).data as never },
+      };
+    };
+
+    return { ask, items, read, readAll } as unknown as DecisionBatch<M>;
+  };
+
+  return {
+    get metadata() {
+      if (isDraft) console.warn('[sufleur] Warning: decision prompt "' + name + '" is a draft version');
+      return def.metadata;
+    },
+    questionIds: def.questions.map((q) => q.id),
+    question: (id: string, inputs?: Record<string, unknown>, opts?: { options?: Record<string, Record<string, unknown>> }) =>
+      _renderQuestion(def, id, inputs, opts?.options),
+    parseAnswer,
+    batch,
+  } as unknown as Decision<M>;
+}
+{{range .Decisions}}
+// ─── {{.Name}} ────────────────────────────────────────────────────────────────
+{{range .Questions}}
+export const {{.AnswerSchemaName}} = {{.AnswerZod}};
+{{end}}
+export type {{.PascalName}}Questions = {
+{{- range .Questions}}
+  {{.ID}}: {
+    type: '{{.Type}}';
+    inputs: {{.InputsType}};
+{{- if .OptionInputsType}}
+    optionInputs: {{.OptionInputsType}};
+{{- end}}
+    answer: z.infer<typeof {{.AnswerSchemaName}}>;
+  };
+{{- end}}
+};
+
+const _{{.PascalName}}Def: _DecisionDef = {{.DefJSON}};
+{{end}}
+export type DecisionName ={{range .Decisions}} | '{{.Name}}'{{end}};
+
+const _decisions = {
+{{- range .Decisions}}
+  '{{.Name}}': _createDecision<{{.PascalName}}Questions>('{{.Name}}', _{{.PascalName}}Def, {
+{{- range .Questions}}
+    '{{.ID}}': {{.AnswerSchemaName}},
+{{- end}}
+  }, {{if eq .Status "DRAFT"}}true{{else}}false{{end}}),
+{{- end}}
+};
 {{range .Decisions}}
 {{- if .Description}}
 /**
  * {{jsDocComment .Description}}
- * @version {{.Version}}
+ *
+ * Version: {{.Version}}
  */
 {{- end}}
-export function getDecision(name: '{{.Name}}'): DecisionResult<'{{.Name}}'>;
-{{end -}}
-export function getDecision<N extends DecisionName>(name: N): DecisionResult<N>;
-export function getDecision<N extends DecisionName>(name: N): DecisionResult<N> {
-  if (_draftDecisions.has(name)) {
-    console.warn('[sufleur] Warning: decision prompt "' + name + '" is a draft version');
-  }
-  const def = _decisions[name];
-  const schema = _answerSchemas[name];
-
-  const buildRequest = (args: DecisionMapping[N]['args']): DecisionRequest => {
-    const input = args as {
-      state?: unknown;
-      stateInputs?: Record<string, unknown>;
-      questionInputs?: Record<string, Record<string, unknown>>;
-    };
-    const stateFile = def.stateFile === null ? undefined : def.files[def.stateFile];
-    const state = stateFile ? _renderDecisionFile(stateFile, input.stateInputs ?? {}, def.partials) : input.state;
-    const questions: DecisionRequest['questions'] = {};
-    for (const q of def.questions) {
-      const file = def.files[q.id]!;
-      questions[q.id] = {
-        type: q.type,
-        instructions: _renderDecisionFile(file, input.questionInputs?.[q.id] ?? {}, def.partials),
-        ...(q.criteria !== undefined ? { criteria: q.criteria } : {}),
-      };
-    }
-    return { model: def.model, state, questions };
-  };
-
-  const parseResponse = (raw: unknown): DecisionParseResult<DecisionMapping[N]['answers']> => {
-    const candidate =
-      raw !== null && typeof raw === 'object' && 'answers' in (raw as Record<string, unknown>)
-        ? (raw as { answers: unknown }).answers
-        : raw;
-    const validated = schema.safeParse(candidate);
-    if (validated.success) {
-      return { success: true, data: validated.data as DecisionMapping[N]['answers'] };
-    }
-    return { success: false, error: validated.error.message, code: 'schema-validation' };
-  };
-
-  return { questionIds: def.questions.map((q) => q.id), model: def.model, buildRequest, parseResponse };
+export function getDecision(name: '{{.Name}}'): Decision<{{.PascalName}}Questions>;
+{{- end}}
+export function getDecision(name: DecisionName): Decision<any>;
+export function getDecision(name: DecisionName) {
+  return _decisions[name];
 }
 `

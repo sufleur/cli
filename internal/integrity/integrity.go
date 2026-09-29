@@ -30,6 +30,9 @@ type canonicalData struct {
 	// before tool support stay valid — no forced refetch or --frozen failure on
 	// upgrade. Never drop the omitempty.
 	Tools []canonicalTool `json:"tools,omitempty"`
+	// DecisionSpec is set only for decision (SYSTEM_ONE) prompts, so LLM
+	// prompt hashes are unchanged. Never drop the omitempty.
+	DecisionSpec json.RawMessage `json:"decisionSpec,omitempty"`
 }
 
 type canonicalFile struct {
@@ -37,6 +40,10 @@ type canonicalFile struct {
 	Content      string                 `json:"content"`
 	IsEntrypoint bool                   `json:"isEntrypoint"`
 	InputSchema  map[string]interface{} `json:"inputSchema,omitempty"`
+	// Format and OptionInputSchema only ever appear on decision-prompt files,
+	// so LLM prompt hashes are unchanged. Never drop the omitempty.
+	Format            string                 `json:"format,omitempty"`
+	OptionInputSchema map[string]interface{} `json:"optionInputSchema,omitempty"`
 }
 
 // canonicalTool is a pinned tool contract as it contributes to the hash.
@@ -66,6 +73,9 @@ func Compute(pd *generator.PromptData) string {
 			Content:      f.Content,
 			IsEntrypoint: f.IsEntrypoint,
 			InputSchema:  f.InputSchema,
+
+			Format:            f.Format,
+			OptionInputSchema: f.OptionInputSchema,
 		}
 	}
 	sort.Slice(files, func(i, j int) bool {
@@ -98,6 +108,11 @@ func Compute(pd *generator.PromptData) string {
 		Description: pd.Description,
 		Files:       files,
 		Tools:       tools,
+	}
+	if pd.DecisionSpec != nil {
+		if spec, err := pd.DecisionSpec.MarshalJSON(); err == nil {
+			cd.DecisionSpec = spec
+		}
 	}
 
 	data, _ := json.Marshal(cd) // struct is always marshalable

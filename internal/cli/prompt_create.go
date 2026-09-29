@@ -51,7 +51,7 @@ var promptCreateCmd = &cobra.Command{
 			return printJSON(cmd, p)
 		}
 		if kind == "SYSTEM_ONE" {
-			fmt.Fprintf(cmd.OutOrStdout(), "Created decision prompt @%s/%s with an initial draft seeded with one noul question (isRelevant) on jev-latest. Edit the questions with `sufleur version set-decision-spec`.\n", ref.Workspace, p.Name)
+			fmt.Fprintf(cmd.OutOrStdout(), "Created decision prompt @%s/%s with an initial draft seeded with one noul question (isRelevant) on jev-latest. Edit the questions with `sufleur version set-decision-spec`; render one with `sufleur prompt render --question`.\n", ref.Workspace, p.Name)
 			return nil
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Created @%s/%s with an initial draft seeded with two empty entrypoint files: systemPrompt, userPrompt (reuse or delete them)\n", ref.Workspace, p.Name)

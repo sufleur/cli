@@ -24,10 +24,9 @@ type PromptVersion struct {
 	ModelConfig  *ModelConfig   `json:"modelConfig,omitempty"`
 	Readme       string         `json:"readme"`
 	Files        []PromptFile   `json:"files"`
-	// DecisionSpec and StateSchema are set only on SYSTEM_ONE decision
-	// prompts. DecisionSpec decodes order-preservingly (question order).
+	// DecisionSpec is set only on SYSTEM_ONE decision prompts. It decodes
+	// order-preservingly (question order).
 	DecisionSpec *generator.DecisionSpec `json:"decisionSpec,omitempty"`
-	StateSchema  map[string]any          `json:"stateSchema,omitempty"`
 }
 
 // ModelConfig is a version's structured provider/model/parameters, set via
@@ -55,7 +54,7 @@ type PromptVersionsPage struct {
 	Total int             `json:"total"`
 }
 
-const promptVersionFields = "version status createdAt updatedAt metadata outputSchema decisionSpec stateSchema modelConfig { provider model parameters } readme files { name content isEntrypoint format }"
+const promptVersionFields = "version status createdAt updatedAt metadata outputSchema decisionSpec modelConfig { provider model parameters } readme files { name content isEntrypoint format }"
 
 // SetPromptVersionDecisionSpec replaces a decision prompt's spec. spec is the
 // JSON document as-is (a RawMessage keeps question and option order).

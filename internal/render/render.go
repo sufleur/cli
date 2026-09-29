@@ -193,85 +193,49 @@ func (p *PromptDir) renderValue(name string, vars map[string]any, provider musta
 	return rendered.MarshalJSON()
 }
 
-// RenderDecision builds the System-One request body ({model, state, questions})
-// for a decision-prompt directory. inputsByFile holds each question/state
-// file's Mustache inputs; state is the raw state for prompts without a state
-// file (and must be nil otherwise).
-func (p *PromptDir) RenderDecision(state any, inputsByFile map[string]map[string]any) ([]byte, error) {
+// RenderQuestion renders one question of a decision-prompt directory into the
+// object sent under `questions.<key>` in a System-One request: {type,
+// instructions, criteria}. inputs are the question's template inputs; options
+// (an ordered JSON object of option key → option inputs, or nil) add options to
+// an open choice. The rendering rules match the backend and generated code.
+func (p *PromptDir) RenderQuestion(questionID string, inputs map[string]any, options []byte) ([]byte, error) {
 	spec := p.DecisionSpec
 	if spec == nil {
 		return nil, fmt.Errorf("no decision.yaml in this directory — not a decision prompt")
 	}
-	prepared := make(map[string]string, len(p.Files))
-	for name, content := range p.Files {
-		prepared[name] = p.substituteDirectives(content)
+	q, ok := spec.Question(questionID)
+	if !ok {
+		return nil, fmt.Errorf("%q is not a question in decision.yaml (questions: %s)", questionID, strings.Join(spec.EntrypointNames(), ", "))
 	}
-	provider := &mustache.StaticProvider{Partials: prepared}
-	inputs := func(name string) map[string]any {
-		if v := inputsByFile[name]; v != nil {
-			return v
-		}
-		return map[string]any{}
+	content, ok := p.Files[questionID]
+	if !ok {
+		return nil, fmt.Errorf("question file %q is missing from files/", questionID)
 	}
-
-	var b bytes.Buffer
-	model, _ := json.Marshal(p.Model)
-	b.WriteString(`{"model":`)
-	b.Write(model)
-	b.WriteString(`,"state":`)
-	if spec.StateFile != "" {
-		if state != nil {
-			return nil, fmt.Errorf("this prompt renders its state from %q — pass that file's inputs instead of a raw state", spec.StateFile)
-		}
-		if _, ok := p.Files[spec.StateFile]; !ok {
-			return nil, fmt.Errorf("state file %q is missing from files/", spec.StateFile)
-		}
-		value, err := p.renderValue(spec.StateFile, inputs(spec.StateFile), provider)
+	instructions := generator.QuestionInstructions{Template: content}
+	if p.YAMLFiles[questionID] {
+		tree, err := generator.ParseStructured(content)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", questionID, err)
 		}
-		b.Write(value)
-	} else {
-		if state == nil {
-			return nil, fmt.Errorf("this prompt has no state file — pass the state with --state or --state-file")
-		}
-		var raw bytes.Buffer
-		enc := json.NewEncoder(&raw)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(state); err != nil {
-			return nil, err
-		}
-		b.Write(bytes.TrimRight(raw.Bytes(), "\n"))
+		instructions = generator.QuestionInstructions{YAML: true, Tree: tree}
 	}
-	b.WriteString(`,"questions":{`)
-	for i, q := range spec.Questions {
-		if _, ok := p.Files[q.ID]; !ok {
-			return nil, fmt.Errorf("question file %q is missing from files/", q.ID)
+	var added []generator.DecisionOption
+	if len(bytes.TrimSpace(options)) > 0 {
+		var err error
+		if added, err = generator.OrderedOptions(options); err != nil {
+			return nil, fmt.Errorf("--options: %w", err)
 		}
-		value, err := p.renderValue(q.ID, inputs(q.ID), provider)
-		if err != nil {
-			return nil, err
-		}
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		id, _ := json.Marshal(q.ID)
-		typ, _ := json.Marshal(q.Type)
-		b.Write(id)
-		b.WriteString(`:{"type":`)
-		b.Write(typ)
-		b.WriteString(`,"instructions":`)
-		b.Write(value)
-		if len(q.Criteria) > 0 {
-			b.WriteString(`,"criteria":`)
-			b.Write(q.Criteria)
-		}
-		b.WriteByte('}')
 	}
-	b.WriteString("}}")
-
+	provider := &mustache.StaticProvider{Partials: p.Files}
+	rendered, err := generator.RenderDecisionQuestion(q, instructions, inputs, added,
+		func(template string, view map[string]any) (string, error) {
+			return mustache.RenderPartials(template, provider, view)
+		})
+	if err != nil {
+		return nil, err
+	}
 	var out bytes.Buffer
-	if err := json.Indent(&out, b.Bytes(), "", "  "); err != nil {
+	if err := json.Indent(&out, rendered, "", "  "); err != nil {
 		return nil, err
 	}
 	return out.Bytes(), nil
@@ -281,9 +245,6 @@ func (p *PromptDir) RenderDecision(state any, inputsByFile map[string]map[string
 // schema body. Mirrors internal/generator.ResolveDirectives so behavior is
 // identical to what the codegen path applies.
 func (p *PromptDir) substituteDirectives(content string) string {
-	if p.DecisionSpec != nil {
-		content = generator.ResolveFieldDirectives(content)
-	}
 	if !strings.Contains(content, "@outputSchema") {
 		return content
 	}

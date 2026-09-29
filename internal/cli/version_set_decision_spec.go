@@ -18,22 +18,29 @@ var versionSetDecisionSpecCmd = &cobra.Command{
 	Long: `Reads a decision spec (YAML or JSON) and stores it on a draft version of a
 decision prompt:
 
-  stateFile: state            # optional; omit to have callers pass the state
   questions:
     department:
       type: choice            # noul | choice | score
-      criteria:
-        billing: Payments, invoicing, refunds
+      criteria:               # string values are Mustache templates
+        billing: Payments for {{{product}}}
         technical: null
+    about:
+      type: choice
+      criteria:
+        none: no listed concept fits
+      optionCriteria:         # callers may add options, each described by this
+        what: the belief is about "{{{name}}}"
     frustration:
       type: score
       criteria: [Calm, Frustrated, Very angry]
     isUrgent:
       type: noul
 
-Each question id is also the file holding its instructions; missing files are
-created empty, files the spec no longer names become partials, and the
-answer (output) schema is re-derived. Question and option order is kept.`,
+Each question is a template, rendered one at a time: its id is also the file
+holding its instructions, and its criteria use the same inputs. Missing files
+are created empty, files the spec no longer names become partials, and the
+per-question answer schemas are re-derived. Question and option order is
+kept. Use {{{ }}} to insert values without HTML escaping.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

@@ -9,8 +9,8 @@ import (
 )
 
 // KindSystemOne is the Prompt.kind value of decision prompts: typed
-// noul / choice / score questions evaluated by a System-One model (TypeSafe
-// Jev) against one state, instead of chat templates for a text-generating LLM.
+// noul / choice / score question templates for a System-One model (TypeSafe
+// Jev), instead of chat templates for a text-generating LLM.
 const KindSystemOne = "SYSTEM_ONE"
 
 // IsDecision reports whether the prompt is a SYSTEM_ONE decision prompt.
@@ -18,27 +18,35 @@ func (p PromptData) IsDecision() bool {
 	return p.Kind == KindSystemOne && p.DecisionSpec != nil
 }
 
-// DecisionSpec is a SYSTEM_ONE version's output descriptor. Each question id
-// is also the name of the entrypoint file holding its instructions. Questions
-// keep the order they were authored in — the backend stores the spec as
-// order-preserving JSON, and this type decodes it without going through a Go
-// map, so generated code and dumps list questions (and choice options) in
-// author order.
+// DecisionSpec is a SYSTEM_ONE version's question templates. Each question id
+// is also the name of the entrypoint file holding its instructions; string
+// values in criteria are Mustache templates rendered with the question's
+// inputs. Questions keep the order they were authored in — the backend stores
+// the spec as order-preserving JSON, and this type decodes it without going
+// through a Go map, so generated code and dumps list questions (and choice
+// options) in author order.
 type DecisionSpec struct {
-	StateFile string
 	Questions []DecisionQuestion
 }
 
-// DecisionQuestion is one question. Criteria is kept as raw JSON so option
-// order and structured (object/array) descriptions survive untouched.
+// DecisionQuestion is one question template. Criteria and OptionCriteria are
+// kept as raw JSON so option order and structured (object/array) descriptions
+// survive untouched. OptionCriteria is nil when absent; a present-but-null
+// value (an open choice whose added options have no description) is "null".
 type DecisionQuestion struct {
-	ID       string
-	Type     string // "noul" | "choice" | "score"
-	Criteria json.RawMessage
+	ID             string
+	Type           string // "noul" | "choice" | "score"
+	Criteria       json.RawMessage
+	OptionCriteria json.RawMessage
 }
 
-// UnmarshalJSON decodes {stateFile?, questions: {id: {type, criteria?}}}
-// preserving the order of the question keys.
+// IsOpenChoice reports whether callers may add options to this question.
+func (q DecisionQuestion) IsOpenChoice() bool {
+	return q.Type == "choice" && q.OptionCriteria != nil
+}
+
+// UnmarshalJSON decodes {questions: {id: {type, criteria?, optionCriteria?}}}
+// preserving the order of the question keys. A legacy stateFile key is ignored.
 func (s *DecisionSpec) UnmarshalJSON(data []byte) error {
 	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
 		return nil
@@ -48,28 +56,30 @@ func (s *DecisionSpec) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decision spec: %w", err)
 	}
 	*s = DecisionSpec{}
-	if raw, ok := top["stateFile"]; ok && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		if err := json.Unmarshal(raw, &s.StateFile); err != nil {
-			return fmt.Errorf("decision spec stateFile: %w", err)
-		}
-	}
 	raw, ok := top["questions"]
 	if !ok {
 		return nil
 	}
 	return orderedObject(raw, func(id string, value json.RawMessage) error {
-		var q struct {
-			Type     string          `json:"type"`
-			Criteria json.RawMessage `json:"criteria"`
-		}
-		if err := json.Unmarshal(value, &q); err != nil {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(value, &fields); err != nil {
 			return fmt.Errorf("decision spec question %q: %w", id, err)
 		}
-		criteria := q.Criteria
+		var typ string
+		if err := json.Unmarshal(fields["type"], &typ); err != nil {
+			return fmt.Errorf("decision spec question %q type: %w", id, err)
+		}
+		criteria := fields["criteria"]
 		if bytes.Equal(bytes.TrimSpace(criteria), []byte("null")) {
 			criteria = nil
 		}
-		s.Questions = append(s.Questions, DecisionQuestion{ID: id, Type: q.Type, Criteria: criteria})
+		var optionCriteria json.RawMessage
+		if raw, ok := fields["optionCriteria"]; ok {
+			optionCriteria = append(json.RawMessage(nil), bytes.TrimSpace(raw)...)
+		}
+		s.Questions = append(s.Questions, DecisionQuestion{
+			ID: id, Type: typ, Criteria: criteria, OptionCriteria: optionCriteria,
+		})
 		return nil
 	})
 }
@@ -78,14 +88,7 @@ func (s *DecisionSpec) UnmarshalJSON(data []byte) error {
 // Deterministic output keeps cache files and lockfile integrity hashes stable.
 func (s DecisionSpec) MarshalJSON() ([]byte, error) {
 	var b bytes.Buffer
-	b.WriteByte('{')
-	if s.StateFile != "" {
-		stateFile, _ := json.Marshal(s.StateFile)
-		b.WriteString(`"stateFile":`)
-		b.Write(stateFile)
-		b.WriteByte(',')
-	}
-	b.WriteString(`"questions":{`)
+	b.WriteString(`{"questions":{`)
 	for i, q := range s.Questions {
 		if i > 0 {
 			b.WriteByte(',')
@@ -101,6 +104,14 @@ func (s DecisionSpec) MarshalJSON() ([]byte, error) {
 				return nil, err
 			}
 			b.WriteString(`,"criteria":`)
+			b.Write(compact.Bytes())
+		}
+		if q.OptionCriteria != nil {
+			var compact bytes.Buffer
+			if err := json.Compact(&compact, q.OptionCriteria); err != nil {
+				return nil, err
+			}
+			b.WriteString(`,"optionCriteria":`)
 			b.Write(compact.Bytes())
 		}
 		b.WriteByte('}')
@@ -134,17 +145,23 @@ func (q DecisionQuestion) ScoreLevels() int {
 	return len(levels)
 }
 
-// EntrypointNames returns every file the spec owns: one per question, plus the
-// state file.
+// EntrypointNames returns every file the spec owns: one per question.
 func (s DecisionSpec) EntrypointNames() []string {
-	names := make([]string, 0, len(s.Questions)+1)
+	names := make([]string, 0, len(s.Questions))
 	for _, q := range s.Questions {
 		names = append(names, q.ID)
 	}
-	if s.StateFile != "" {
-		names = append(names, s.StateFile)
-	}
 	return names
+}
+
+// Question returns the question with the given id.
+func (s DecisionSpec) Question(id string) (DecisionQuestion, bool) {
+	for _, q := range s.Questions {
+		if q.ID == id {
+			return q, true
+		}
+	}
+	return DecisionQuestion{}, false
 }
 
 // orderedObject walks a JSON object's members in document order.
@@ -176,19 +193,6 @@ func orderedObject(raw json.RawMessage, visit func(key string, value json.RawMes
 	}
 	_, err = dec.Token()
 	return err
-}
-
-// fieldDirective matches {{@field path}}, which renders to `path` — TypeSafe's
-// reference syntax for a field of the request state. Mirrors the backend's
-// FIELD_DIRECTIVE.
-var fieldDirective = regexp.MustCompile(`\{\{\s*@field\s+([^{}]*?)\s*\}\}`)
-
-// ResolveFieldDirectives replaces every {{@field path}} with `path`.
-func ResolveFieldDirectives(content string) string {
-	if !strings.Contains(content, "@field") {
-		return content
-	}
-	return fieldDirective.ReplaceAllString(content, "`$1`")
 }
 
 // wholeValueTag matches a value that is exactly one Mustache variable tag.

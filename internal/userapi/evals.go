@@ -127,6 +127,13 @@ type EvalCaseJudge struct {
 	RenderedPrompts []RenderedPrompt `json:"renderedPrompts"`
 }
 
+// EvalCaseQuestion is one question a decision-prompt case asked.
+type EvalCaseQuestion struct {
+	Key      string          `json:"key"`
+	Question string          `json:"question"`
+	Options  json.RawMessage `json:"options"`
+}
+
 // EvalRunCaseDetail is per-case verbose detail. ResolvedInputs and OutputParsed
 // are arbitrary JSON (raw). Assertions/Judges reference the run-level rows.
 type EvalRunCaseDetail struct {
@@ -137,7 +144,10 @@ type EvalRunCaseDetail struct {
 	OutputParsed   json.RawMessage `json:"outputParsed"`
 	// State is the System-One state sent for this case (decision prompts
 	// only); null otherwise.
-	State           json.RawMessage     `json:"state"`
+	State json.RawMessage `json:"state"`
+	// Questions lists the questions asked for this case (decision prompts
+	// only), under the keys their answers use.
+	Questions       []EvalCaseQuestion  `json:"questions"`
 	Assertions      []EvalCaseAssertion `json:"assertions"`
 	Judges          []EvalCaseJudge     `json:"judges"`
 	RenderedPrompts []RenderedPrompt    `json:"renderedPrompts"`
@@ -163,7 +173,7 @@ const evalIssueFields = "path line column message code blocking"
 const evalRunAssertionFields = "id ordinal label kind definition status result errorMessage"
 const evalRunJudgeFields = "id alias promptVersionId provider model"
 const renderedPromptFields = "fileName role renderedPrompt"
-const evalRunCaseDetailFields = "caseIndex passed resolvedInputs outputRaw outputParsed state assertions judges renderedPrompts { " + renderedPromptFields + " } providerError"
+const evalRunCaseDetailFields = "caseIndex passed resolvedInputs outputRaw outputParsed state questions assertions judges renderedPrompts { " + renderedPromptFields + " } providerError"
 
 // ValidateEvalYaml parses and validates an eval YAML document against a prompt
 // version without persisting it. Used by `eval validate` and the pre-check in
