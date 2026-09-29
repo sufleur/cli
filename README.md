@@ -58,6 +58,20 @@ for (const block of res.content) {
 
 The trust boundary runs the opposite way from prompt I/O: a tool's **arguments** are written by the model, so they are validated at runtime, while a tool's **result** comes from your own code, so it is typed statically. The bindings object is typed from the pins, so forgetting a tool — or changing one's shape — is a compile error rather than a runtime surprise. You still own the conversation loop; `dispatchTool` is a pure function.
 
+### Decision models (TypeSafe Jev)
+
+Prompts can also target **System-One decision models** such as [TypeSafe](https://typesafe.ai)'s **Jev**, which answer typed questions (`noul`, `choice`, `score`) about a state instead of generating text. A decision prompt is a versioned question set, and it generates to a typed request builder and answer parser:
+
+```ts
+const triage = getDecision('@acme/ticket-triage');
+
+const body = triage.buildRequest({ state: { ticket } });   // → POST https://api.typesafe.ai/v1/systemone
+const result = triage.parseResponse(await res.json());
+if (result.success) result.data.department.choice;          // 'billing' | 'technical' | 'sales'
+```
+
+Author them with `prompt create --kind system-one` and `version set-decision-spec` (see below). Full guide: <https://sufleur.com/docs/decision-models>.
+
 ## Quickstart
 
 Zero to that typed call in under five minutes. Public prompts need no account or API key:
@@ -107,7 +121,7 @@ Or grab a binary directly from the GitHub releases page.
 | `sufleur update [@ws/name]` | Re-resolve one or all prompts |
 | `sufleur generate` | Regenerate the typed `.ts` / `.py` file from the lockfile |
 
-The generated file inlines every prompt (no runtime fetches) and exposes `getPrompt(name)` / `get_prompt(name)` with a typed `render(...)` plus an optional `parseOutput(...)` / `parse_output(...)` for prompts that declare an output schema.
+The generated file inlines every prompt (no runtime fetches) and exposes `getPrompt(name)` / `get_prompt(name)` with a typed `render(...)` plus an optional `parseOutput(...)` / `parse_output(...)` for prompts that declare an output schema. Decision prompts come out as `getDecision(name)` / `get_decision(name)` instead.
 
 **Authoring side** — login and CRUD:
 
@@ -116,15 +130,27 @@ The generated file inlines every prompt (no runtime fetches) and exposes `getPro
 | Auth | `login`, `logout`, `me` |
 | Workspaces | `workspace list` |
 | Prompts | `prompt create / get / list / update` |
-| Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-model-config / set-readme / get-readme / dump`, plus `version tools` |
+| Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-decision-spec / set-model-config / set-readme / get-readme / dump`, plus `version tools` |
 | Files | `file create / update / delete / list / set-entrypoint` |
 | Evals | `eval get / validate / push / delete / run / runs / show / watch / cases / case` |
 | Datasets | `dataset create / get / list / update / dump`, plus `dataset version / schema / cases` subgroups |
 | Tools | `tool create / get / list / update / dump`, plus `tool version / schema` subgroups |
 | Collections | `collection create / get / list-prompts / link / set-readme / set-description` |
-| Local render | `prompt render <dir> --entrypoint <name> --vars '{...}'` |
+| Local render | `prompt render <dir> --entrypoint <name> --vars '{...}'`, or `prompt render <dir> --state '{...}'` for a decision prompt's full request |
 
 Every authoring command accepts `--json` for machine-readable output. See the wrapper READMEs for the full table.
+
+### Decision prompts
+
+A decision prompt is created with `sufleur prompt create @ws/name --kind system-one` (the kind is fixed at creation). Each question is an entrypoint file holding its instructions, and the questions' types and criteria live in a `decision.yaml` spec:
+
+- `sufleur version dump @ws/name@draft --to ./dir` — writes `decision.yaml` next to `files/`. YAML-format files are dumped as `<name>.yaml.mustache`.
+- `sufleur version set-decision-spec @ws/name@draft --from-file ./dir/decision.yaml` — apply the spec. This is the only way to add or remove questions: missing question files are created, dropped ones become partials.
+- `sufleur file create|update ... --format yaml` — structured instructions or state (inferred from a `.yaml.mustache` extension).
+- `sufleur version set-model-config @ws/name@draft --provider typesafe --model jev-latest`
+- `sufleur prompt render ./dir --state '{...}'` — print the exact request body Jev receives.
+
+In evals, the state is mapped with `inputMapping.state` (a CEL expression over the case), and `output` is the typed answers object, e.g. `output.department.choice == case.team`.
 
 ### Collections
 

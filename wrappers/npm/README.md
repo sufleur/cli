@@ -78,6 +78,26 @@ Optional schema properties are emitted with `?:`, and `oneOf` schemas become Typ
 
 Prompts published with `DRAFT` status emit a runtime `console.warn` when their `getPrompt` is called.
 
+### Decision prompts (TypeSafe Jev)
+
+Prompts for **System-One decision models** such as TypeSafe's **Jev** ask typed questions (`noul`, `choice`, `score`) about a state instead of generating text. They're emitted as `getDecision(name)`, which returns:
+
+- **`buildRequest(args)`** — the request body for `POST https://api.typesafe.ai/v1/systemone`. `args` is typed per prompt: `{ state }` or `{ stateInputs }` depending on whether the prompt has a state file, plus `questionInputs` for questions whose instructions take variables.
+- **`parseResponse(raw)`** — validates the response (or its `answers`) with Zod. Returns `{ success: true, data }`, with each choice's options as a literal union, or `{ success: false, error }`.
+- **`questionIds`**, **`model`** — the questions in authored order and the Jev model the version was written for.
+
+```ts
+const triage = getDecision('@my-workspace/ticket-triage');
+const res = await fetch('https://api.typesafe.ai/v1/systemone', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${process.env.TYPESAFE_API_KEY}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify(triage.buildRequest({ state: { ticket } })),
+});
+const result = triage.parseResponse(await res.json());
+```
+
+You make the HTTP call; the generated code adds no runtime dependencies beyond `mustache` and `zod`. Guide: <https://sufleur.com/docs/decision-models>.
+
 ## sufleur.yaml
 
 The manifest. Looks like:
@@ -159,6 +179,7 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | ------- | ------------ |
 | `workspace list` | List the workspaces you belong to, with your role |
 | `prompt create @ws/name --description "..."` | Create a new prompt in a workspace |
+| `prompt create @ws/name --kind system-one` | Create a decision-model prompt (TypeSafe Jev); the kind is fixed |
 | `prompt list @ws [--search ... --limit ... --offset ...]` | List prompts in a workspace |
 | `prompt get @ws/name` | Show one prompt's details |
 | `prompt update @ws/name --description "..."` | Update the description |
@@ -169,12 +190,13 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `version set-metadata @ws/name@draft --string K=V` (or `--from-file …`) | Patch or sync metadata |
 | `version delete-metadata @ws/name@draft --key K` | Remove a metadata key |
 | `version set-output-schema @ws/name@draft --file schema.json` | Replace the version's output schema |
+| `version set-decision-spec @ws/name@draft --from-file decision.yaml` | Set a decision prompt's questions (types, criteria, optional state file) |
 | `version set-model-config @ws/name@draft --provider anthropic --model NAME [--params '{...}']` | Set the version's provider/model/parameters |
 | `version set-readme @ws/name@draft [--content STR \| --file PATH]` | Replace the version's README |
 | `version get-readme @ws/name@version` | Print the version's README to stdout (raw markdown) |
 | `version dump @ws/name@version --to ./dir` | Export files, output schema, README, and metadata to disk |
 | `file list @ws/name@version` | List files in a version |
-| `file create @ws/name@draft --file path.mustache [--entrypoint]` | Add a new file |
+| `file create @ws/name@draft --file path.mustache [--entrypoint] [--format text\|yaml]` | Add a new file (`.yaml.mustache` implies `--format yaml`) |
 | `file update @ws/name@draft --name X [--file ...] [--rename Y]` | Replace content and/or rename |
 | `file delete @ws/name@draft --name X` | Delete a file |
 | `file set-entrypoint @ws/name@draft --name X [--clear]` | Mark (or unmark) a file as an entrypoint |
@@ -220,7 +242,7 @@ An **eval** scores a prompt version against a **dataset** — judges, CEL assert
 
 ### Render before publishing
 
-`sufleur prompt render <dir> --entrypoint <name> [--vars '{...}' | --vars-file path.json]` runs the same Mustache pipeline as the generated runtime — useful for previewing a draft locally before publishing, or for quick experimentation against a `version dump` directory. No auth required.
+`sufleur prompt render <dir> --entrypoint <name> [--vars '{...}' | --vars-file path.json]` runs the same Mustache pipeline as the generated runtime — useful for previewing a draft locally before publishing, or for quick experimentation against a `version dump` directory. No auth required. For a decision prompt, omit `--entrypoint` to print the full request body; pass the raw state with `--state '{...}'` (or `--state-file`).
 
 ## Supported platforms
 
