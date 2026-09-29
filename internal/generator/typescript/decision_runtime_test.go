@@ -164,10 +164,17 @@ func deref(s *string) string {
 // runs a batch end to end: keys, options, partial read and readAll.
 func TestGeneratedDecisionTypesAndBatch(t *testing.T) {
 	work := runtimeDir(t)
-	if err := (&Generator{}).Generate(filepath.Join(work, "prompts.ts"), []generator.PromptData{decisionFixture(t)}); err != nil {
+	// An LLM prompt alongside, so both sections compile under the strict flags.
+	llm := generator.PromptData{
+		Ref: "@acme/summarise", Name: "summarise", Version: "1.0.0", Status: "PUBLISHED",
+		Files: []generator.PromptFile{{Name: "userPrompt", Content: "Summarise {{text}}", IsEntrypoint: true,
+			InputSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{"text": map[string]interface{}{"type": "string"}}, "required": []interface{}{"text"}}}},
+	}
+	if err := (&Generator{}).Generate(filepath.Join(work, "prompts.ts"), []generator.PromptData{decisionFixture(t), llm}); err != nil {
 		t.Fatal(err)
 	}
-	program := `import { getDecision, type RenderedQuestion } from './prompts';
+	program := `import { getDecision, getPrompt, type RenderedQuestion } from './prompts';
+getPrompt('@acme/summarise').render('userPrompt', { text: 'x' });
 
 const triage = getDecision('@acme/triage');
 const batch = triage.batch();
@@ -247,7 +254,7 @@ console.log(JSON.stringify({
 		t.Fatal(err)
 	}
 	bin := filepath.Join(filepath.Dir(work), "node_modules", ".bin")
-	tsc := exec.Command(filepath.Join(bin, "tsc"), "--noEmit", "--strict", "--target", "es2022",
+	tsc := exec.Command(filepath.Join(bin, "tsc"), "--noEmit", "--strict", "--noUnusedLocals", "--noUnusedParameters", "--target", "es2022",
 		"--module", "esnext", "--moduleResolution", "bundler", "--skipLibCheck", "--types", "node", "program.ts")
 	tsc.Dir = work
 	if out, err := tsc.CombinedOutput(); err != nil {

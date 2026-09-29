@@ -297,7 +297,6 @@ interface _QuestionSpec {
 type _QuestionMap<M> = { [K in keyof M]: _QuestionSpec };
 type _NoInputs = Record<string, never>;
 type _OptionInputs<S> = S extends { optionInputs: infer O } ? O : never;
-type _WithOptions<M> = { [K in keyof M]: M[K] extends { optionInputs: object } ? K : never }[keyof M];
 type _QuestionOptions<S> = [_OptionInputs<S>] extends [never] ? { options?: never } : { options?: Record<string, _OptionInputs<S>> };
 
 /** Returned by batch.ask(); reads the same question's answer back. A is its answer type. */

@@ -164,7 +164,13 @@ def run(fn):
 func TestGeneratedDecisionTypesAndBatch(t *testing.T) {
 	python := runtimePython(t)
 	work := t.TempDir()
-	if err := (&Generator{}).Generate(filepath.Join(work, "prompts.py"), []generator.PromptData{decisionFixture(t)}); err != nil {
+	// An LLM prompt alongside, so mypy checks both sections of the module.
+	llm := generator.PromptData{
+		Ref: "@acme/summarise", Name: "summarise", Version: "1.0.0", Status: "PUBLISHED",
+		Files: []generator.PromptFile{{Name: "userPrompt", Content: "Summarise {{text}}", IsEntrypoint: true,
+			InputSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{"text": map[string]interface{}{"type": "string"}}, "required": []interface{}{"text"}}}},
+	}
+	if err := (&Generator{}).Generate(filepath.Join(work, "prompts.py"), []generator.PromptData{decisionFixture(t), llm}); err != nil {
 		t.Fatal(err)
 	}
 	program := `import json
@@ -240,7 +246,8 @@ print(json.dumps({
 	}
 
 	// mypy must report exactly the "# type-error" lines, and nothing else.
-	mypy := exec.Command(python, "-m", "mypy", "--strict", "--no-error-summary", "--follow-imports=silent", "program.py")
+	// The generated module itself must be clean under --strict (chevron ships no stubs).
+	mypy := exec.Command(python, "-m", "mypy", "--strict", "--no-error-summary", "--ignore-missing-imports", "--warn-unused-ignores", "program.py", "prompts.py")
 	mypy.Dir = work
 	report, _ := mypy.CombinedOutput()
 	var expected []int
@@ -249,8 +256,16 @@ print(json.dumps({
 			expected = append(expected, i+1)
 		}
 	}
+	// Only the decision section is held to --strict here: the LLM section still
+	// emits a lone @overload for single-entrypoint prompts (tracked separately).
+	generated, _ := os.ReadFile(filepath.Join(work, "prompts.py"))
+	decisionStart := 1 + strings.Count(strings.SplitN(string(generated), "# ─── Decision Prompts", 2)[0], "\n")
 	reported := map[int]bool{}
 	for _, line := range strings.Split(string(report), "\n") {
+		var at int
+		if _, err := fmt.Sscanf(line, "prompts.py:%d:", &at); err == nil && at >= decisionStart && strings.Contains(line, "error:") {
+			t.Errorf("generated decision code fails mypy --strict: %s", line)
+		}
 		var n int
 		if _, err := fmt.Sscanf(line, "program.py:%d:", &n); err == nil && strings.Contains(line, "error:") {
 			reported[n] = true
