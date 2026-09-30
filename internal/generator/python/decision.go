@@ -509,6 +509,15 @@ class _BatchBase:
 # ─── Decision {{.Name}} ────────────────────────────────────────────────
 {{range .TypedDicts}}
 
+{{- if .Functional}}
+
+{{.Name}} = TypedDict({{pyStringLiteral .Name}}, {
+{{- range .Fields}}
+    {{pyStringLiteral .Name}}: {{.Type}},
+{{- end}}
+})
+{{- else}}
+
 class {{.Name}}(TypedDict):
 {{- range .Fields}}
     {{.Name}}: {{.Type}}
@@ -516,14 +525,18 @@ class {{.Name}}(TypedDict):
     """{{pyDocstring .Description}}"""
     {{- end}}
 {{- end}}
+{{- end}}
 {{end}}
 {{if .AnswerModels}}
 {{.AnswerModels}}
 {{end}}
 
 class _{{.PascalName}}Batch(_BatchBase):
+{{- $many := gt (len .Questions) 1}}
 {{- range .Questions}}
+{{- if $many}}
     @overload
+{{- end}}
     def ask(
         self,
         question_id: Literal[{{.IDLiteral}}],
@@ -532,13 +545,19 @@ class _{{.PascalName}}Batch(_BatchBase):
         key: Optional[str] = None,
 {{- if .Open}}
         options: Optional[Mapping[str, {{.OptionInputsType}}]] = None,
+{{- else if not $many}}
+        options: None = None,
 {{- end}}
-    ) -> DecisionHandle[{{.AnswerClass}}]: ...
+    ) -> DecisionHandle[{{.AnswerClass}}]:{{if $many}} ...{{else}}
+        """Ask a question under key (default: its question id); returns a typed handle."""
+        return self._ask(question_id, inputs, key, options){{end}}
 {{- end}}
+{{- if $many}}
 
     def ask(self, question_id: Any, inputs: Any = None, *, key: Optional[str] = None, options: Any = None) -> Any:
         """Ask a question under key (default: its question id); returns a typed handle."""
         return self._ask(question_id, inputs, key, options)
+{{- end}}
 
 
 class _{{.PascalName}}Decision(_DecisionBase):
@@ -558,7 +577,9 @@ class _{{.PascalName}}Decision(_DecisionBase):
     }
     _draft = {{if eq .Status "DRAFT"}}True{{else}}False{{end}}
 {{range .Questions}}
+{{- if $many}}
     @overload
+{{- end}}
     def question(
         self,
         question_id: Literal[{{.IDLiteral}}],
@@ -566,21 +587,34 @@ class _{{.PascalName}}Decision(_DecisionBase):
 {{- if .Open}}
         *,
         options: Optional[Mapping[str, {{.OptionInputsType}}]] = None,
+{{- else if not $many}}
+        *,
+        options: None = None,
 {{- end}}
-    ) -> dict[str, Any]: ...
+    ) -> dict[str, Any]:{{if $many}} ...{{else}}
+        """Render one question into what a System-One API takes under questions.<key>."""
+        return _render_question(self._definition, question_id, inputs, options){{end}}
 {{- end}}
+{{- if $many}}
 
     def question(self, question_id: Any, inputs: Any = None, *, options: Any = None) -> Any:
         """Render one question into what a System-One API takes under questions.<key>."""
         return _render_question(self._definition, question_id, inputs, options)
-{{range .Questions}}
-    @overload
-    def parse_answer(self, question_id: Literal[{{.IDLiteral}}], raw: Any) -> AnswerResult[{{.AnswerClass}}]: ...
 {{- end}}
+{{range .Questions}}
+{{- if $many}}
+    @overload
+{{- end}}
+    def parse_answer(self, question_id: Literal[{{.IDLiteral}}], raw: Any) -> AnswerResult[{{.AnswerClass}}]:{{if $many}} ...{{else}}
+        """Validate one raw answer against the question's answer type."""
+        return self._parse(question_id, raw){{end}}
+{{- end}}
+{{- if $many}}
 
     def parse_answer(self, question_id: Any, raw: Any) -> Any:
         """Validate one raw answer against the question's answer type."""
         return self._parse(question_id, raw)
+{{- end}}
 
     def batch(self) -> _{{.PascalName}}Batch:
         """Start a batch of questions."""

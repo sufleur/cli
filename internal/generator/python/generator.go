@@ -35,6 +35,17 @@ type typedDictClass struct {
 	Fields []typedDictField
 }
 
+// Functional reports whether the class must use the functional TypedDict
+// syntax, because a key is a Python keyword or not an identifier.
+func (c typedDictClass) Functional() bool {
+	for _, f := range c.Fields {
+		if !isPythonIdentifier(f.Name) {
+			return true
+		}
+	}
+	return false
+}
+
 // entrypointData describes a single render target within a prompt.
 // Name is the runtime key (file name); InputTypeName is the TypedDict class name
 // (empty when the entrypoint has no input schema).
@@ -178,7 +189,8 @@ func (g *Generator) Generate(outFile string, prompts []generator.PromptData) err
 
 	if data.AnyDecisions {
 		decisionTmpl, err := template.New("decisions").Funcs(template.FuncMap{
-			"pyDocstring": pyDocstring,
+			"pyDocstring":     pyDocstring,
+			"pyStringLiteral": pyStringLiteral,
 		}).Parse(decisionTemplate)
 		if err != nil {
 			return fmt.Errorf("parsing decision template: %w", err)
@@ -570,7 +582,7 @@ func collectTypedDicts(schema map[string]interface{}, namePrefix string, classes
 				continue
 			}
 			// Child name prefix never includes _; that gets added by the recursive call.
-			childName := namePrefix + "_" + toPascalCase(k)
+			childName := namePrefix + "_" + pyNamePart(k)
 			fieldType := collectTypedDicts(v, childName, classes, false, analysis)
 			if optional := !requiredSet[k]; optional {
 				// Accept None-shaped caller data (DBs, APIs) without forcing
@@ -670,6 +682,17 @@ func unionToPythonType(union interface{}, namePrefix string, classes *[]typedDic
 // toPascalCase delegates to the shared implementation so prompt and tool
 // identifiers are derived identically by both generators.
 func toPascalCase(s string) string { return generator.ToPascalCase(s) }
+
+// pyNamePart is toPascalCase with every character that can't appear in a
+// Python identifier dropped, for building class names from arbitrary keys.
+func pyNamePart(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return -1
+	}, toPascalCase(s))
+}
 
 // escapeForPythonString escapes special characters for use inside a Python double-quoted string.
 func escapeForPythonString(s string) string {
@@ -860,12 +883,22 @@ class PromptOutput(TypedDict):
 # ─── TypedDicts for {{.Name}} ────────────────────────────────────────────────
 {{range .TypedDicts}}
 
+{{- if .Functional}}
+
+{{.Name}} = TypedDict({{pyStringLiteral .Name}}, {
+{{- range .Fields}}
+    {{pyStringLiteral .Name}}: {{.Type}},
+{{- end}}
+})
+{{- else}}
+
 class {{.Name}}(TypedDict):
 {{- range .Fields}}
     {{.Name}}: {{.Type}}
     {{- if .Description}}
     """{{pyDocstring .Description}}"""
     {{- end}}
+{{- end}}
 {{- end}}
 {{end}}
 {{- end}}
@@ -1010,12 +1043,22 @@ def _extract_json_candidate(raw: str) -> tuple[str, bool]:
 {{.InputModel}}
 {{- range .OutputDicts}}
 
+{{- if .Functional}}
+
+{{.Name}} = TypedDict({{pyStringLiteral .Name}}, {
+{{- range .Fields}}
+    {{pyStringLiteral .Name}}: {{.Type}},
+{{- end}}
+})
+{{- else}}
+
 class {{.Name}}(TypedDict):
 {{- range .Fields}}
     {{.Name}}: {{.Type}}
     {{- if .Description}}
     """{{pyDocstring .Description}}"""
     {{- end}}
+{{- end}}
 {{- end}}
 {{- end}}
 
