@@ -43,6 +43,7 @@ func init() {
 	versionCmd.AddCommand(
 		versionToolsCmd,
 		versionDraftCmd,
+		versionPublishCmd,
 		versionDeleteCmd,
 		versionListCmd,
 		versionGetCmd,

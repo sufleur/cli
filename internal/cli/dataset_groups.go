@@ -70,6 +70,7 @@ func init() {
 	)
 	datasetVersionCmd.AddCommand(
 		datasetVersionDraftCmd,
+		datasetVersionPublishCmd,
 		datasetVersionListCmd,
 		datasetVersionGetCmd,
 		datasetVersionValidateCmd,
