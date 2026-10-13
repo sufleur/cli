@@ -585,14 +585,20 @@ Publish **only when the user asked for it, or the task they gave you clearly inc
 Look at the latest published version first, then choose a greater one that matches the change (patch for fixes and rewording, minor for additions, major for breaking input or output changes):
 
 ```bash
-sufleur version list @workspace/name --status PUBLISHED
+sufleur version list @workspace/name --status PUBLISHED               # prompt
+sufleur tool version list @workspace/name --status PUBLISHED          # tool
+sufleur dataset version list @workspace/name --status PUBLISHED       # dataset
 ```
 
 If the user named a version, use it; if it is not greater than the latest published version the command fails — pick a higher one or ask.
 
 ### Ordering
 
-* A prompt cannot be published while it pins a tool version that is still a draft. Publish the tool first, then re-pin or confirm the pin resolves to the published version, then publish the prompt.
+* A prompt cannot be published while it pins a tool version that is still a draft. A pin never moves once linked, so publishing the tool does not update it. Work through it in this order:
+  1. `sufleur version tools list @workspace/name@draft` — the `STATUS` column shows which pins are still `DRAFT`.
+  2. `sufleur tool version publish @workspace/tool <version>` for each such tool (subject to the same opt-in and "when to publish" rules).
+  3. For each stale pin, `sufleur version tools remove @workspace/name@draft @workspace/tool`, then `sufleur version tools add @workspace/name@draft @workspace/tool@<published-version> [--as <wire-name>]`. Pass `--as` with the old wire name from step 1 if it differed from the tool's own name, since `add` defaults to the tool name. Pinning the same tool twice is rejected, which is why the old pin must be removed first.
+  4. `sufleur version tools list @workspace/name@draft` again to confirm every pin is published, then publish the prompt.
 * A dataset can be published only when `dataset version validate` passes.
 * Existing publish rules for the workspace (for example "require a passing eval") still apply and come back as ordinary errors. Fix what they name; do not try to bypass them.
 
@@ -615,7 +621,7 @@ When you see it:
 
 These operations are intentionally human-only:
 
-* **Changing visibility** (PUBLIC ↔ PRIVATE) of a prompt, tool, or collection. Going private can strand published prompts in other workspaces.
+* **Changing visibility** (PUBLIC ↔ PRIVATE) of a prompt, tool, dataset, or collection. Going private can strand published prompts in other workspaces.
 * **Deleting a collection**, or **removing/unlinking a prompt from a collection** (these are destructive — only `link` is exposed, never an unlink).
 * **Deleting a tool.** Deletion is destructive and cross-workspace.
 * **Configuring AI provider credentials** (adding or removing API keys). The CLI can *list* a workspace's providers (`workspace providers @workspace`) so you know what an eval can run against, but never add or change them.
