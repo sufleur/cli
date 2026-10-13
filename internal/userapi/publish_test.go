@@ -89,8 +89,11 @@ func TestDo_GraphQLErrorCarriesExtensionCode(t *testing.T) {
 	if !errors.As(err, &gqlErr) {
 		t.Fatalf("expected *GraphQLError, got %T: %v", err, err)
 	}
-	if gqlErr.Code != CodeCLIPublishingDisabled || gqlErr.Code != "CLI_PUBLISHING_DISABLED" {
+	if gqlErr.Code != CodeCLIPublishingDisabled {
 		t.Errorf("code = %q", gqlErr.Code)
+	}
+	if CodeCLIPublishingDisabled != "CLI_PUBLISHING_DISABLED" {
+		t.Errorf("wire value changed: %q", CodeCLIPublishingDisabled)
 	}
 	if gqlErr.Message != "publishing is off" {
 		t.Errorf("message = %q", gqlErr.Message)
