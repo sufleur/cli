@@ -61,7 +61,7 @@ If you don't know which `@workspace` to address, run `sufleur workspace list` to
 
 ## Draft-first workflow
 
-Published versions are immutable from the CLI's perspective; the backend rejects writes to them. You operate **exclusively on draft versions**.
+Published versions are immutable; the backend rejects writes to them. You edit **exclusively draft versions**; turning a draft into a published version is a separate, opt-in step (see "Publishing").
 
 Before any edit:
 
@@ -197,7 +197,7 @@ This prints the raw markdown to stdout — cheap to pipe into context.
 
 A **dataset** is a workspace-scoped, versioned collection of **cases** — one JSON object per case — plus a JSON Schema describing their shape. Datasets are what evals run against: each case becomes one trial of the candidate prompt. Address a dataset as `@workspace/name` and a version as `@workspace/name@<version>`, where `<version>` is a semver (`1.0.0`), a constraint (`^1.0`), or the literal `draft`. The `+` collection marker is never valid on a dataset reference.
 
-Datasets follow the **same draft → publish lifecycle as prompts** — and, exactly like prompts, **publishing a version and changing visibility are human-only**: do them in the web app, not from the CLI (see "What the CLI cannot do"). The CLI handles everything up to that point — creating, drafting, uploading cases, the schema, and validation. New datasets are created **private**. Dataset names follow npm conventions: lowercase, 5–214 chars, letters/digits/`-`/`_`/`.`.
+Datasets follow the **same draft → publish lifecycle as prompts**. The CLI handles creating, drafting, uploading cases, the schema, and validation, and can publish a validated draft when the workspace allows it (see "Publishing"). **Changing visibility is human-only** (see "What the CLI cannot do"). New datasets are created **private**. Dataset names follow npm conventions: lowercase, 5–214 chars, letters/digits/`-`/`_`/`.`.
 
 ### Create and inspect
 
@@ -241,7 +241,7 @@ Then validate — every case must conform to the schema before the version can b
 sufleur dataset version validate @workspace/name@draft   # exits non-zero on any case violation
 ```
 
-When validation is clean, the draft is ready to **publish in the web app** — publishing is human-only (the backend hard-gates it on validation passing). Once a version is published there, open the next iteration with a fresh draft:
+When validation is clean, the draft is ready to publish — see "Publishing"; the backend hard-gates dataset publishing on validation passing. Once a version is published, open the next iteration with a fresh draft:
 
 ```bash
 sufleur dataset version draft @workspace/name   # carries forward the latest published schema + cases; fails if a draft already exists
@@ -258,7 +258,7 @@ sufleur dataset cases pull   @workspace/name@version [--to cases.jsonl] [--force
 
 `cases pull` downloads a version's cases as JSONL; `dataset dump` does the same plus schema and metadata in one directory — use it to snapshot any published version. `version delete @workspace/name@draft` removes a draft (published versions are immutable).
 
-Once a version is published (in the web app), point an eval at it via `dataset.ref` (see Evals below). Use the literal `draft` in a ref to run an eval against an unpublished version while you iterate.
+Once a version is published, point an eval at it via `dataset.ref` (see Evals below). Use the literal `draft` in a ref to run an eval against an unpublished version while you iterate.
 
 ## Evals
 
@@ -560,20 +560,68 @@ sufleur version tools remove @workspace/name@draft @workspace/tool
 * Changing pins on a **published** version is rejected; pin against `@draft`.
 * Pinning the same tool twice is rejected — rename the existing pin instead.
 * Two pins cannot share a wire name within one version; the error names the clash and suggests a workspace-qualified alias.
-* **Publishing** a prompt version is rejected while any pinned tool version is still a draft, and making a prompt public is rejected while it pins a non-public tool.
+* **Publishing** a prompt version is rejected while any pinned tool version is still a draft (publish the tool first), and making a prompt public is rejected while it pins a non-public tool.
+
+## Publishing
+
+Publishing turns the current draft of a prompt, tool, or dataset into an immutable, semver-numbered version. The CLI can do it:
+
+```bash
+sufleur version publish @workspace/name 1.3.0                 # prompt
+sufleur tool version publish @workspace/name 1.3.0            # tool
+sufleur dataset version publish @workspace/name 1.3.0         # dataset
+```
+
+Each command publishes the **current draft** as the given `x.y.z` version, which must be greater than the latest published version. On success it prints `Published @workspace/name@<version>` (with `--json`, the version object). Collections have no publish step.
+
+**This is a workspace-level opt-in, off by default.** A workspace owner or admin must turn on "Allow CLI and agent publishing" under Settings → Publish rules in the web app. The setting exists so a human stays in control of what gets released; it is a deliberate control, not an obstacle to engineer around.
+
+### When to publish
+
+Publish **only when the user asked for it, or the task they gave you clearly includes it**. Otherwise stop at a ready draft, summarise what changed, and ask. Publishing is irreversible: published versions are immutable and cannot be deleted, and the version number is spent.
+
+### Picking the version
+
+Look at the latest published version first, then choose a greater one that matches the change (patch for fixes and rewording, minor for additions, major for breaking input or output changes):
+
+```bash
+sufleur version list @workspace/name --status PUBLISHED
+```
+
+If the user named a version, use it; if it is not greater than the latest published version the command fails — pick a higher one or ask.
+
+### Ordering
+
+* A prompt cannot be published while it pins a tool version that is still a draft. Publish the tool first, then re-pin or confirm the pin resolves to the published version, then publish the prompt.
+* A dataset can be published only when `dataset version validate` passes.
+* Existing publish rules for the workspace (for example "require a passing eval") still apply and come back as ordinary errors. Fix what they name; do not try to bypass them.
+
+### When publishing is disabled
+
+If a publish command fails with the code `CLI_PUBLISHING_DISABLED` (in `--json` mode, on stderr: `{"error": "...", "code": "CLI_PUBLISHING_DISABLED"}`) or with text starting `CLI publishing is disabled for workspace`, the workspace has not opted in. The full message reads:
+
+```
+Error: CLI publishing is disabled for workspace @<workspace>. A workspace owner or admin must turn on "Allow CLI and agent publishing" in the web app (Settings → Publish rules). This setting cannot be changed from the CLI.
+```
+
+When you see it:
+
+1. **Stop.** Do not retry the command.
+2. **Do not look for a workaround.** No raw GraphQL or `curl` calls, no other credentials or accounts, no attempt to change the setting.
+3. **Tell the user plainly** that a workspace owner or admin has to turn on "Allow CLI and agent publishing" under Settings → Publish rules in the web app, and that you cannot do this for them.
+4. **Say the draft is intact** and offer to publish once they confirm the setting is enabled.
 
 ## What the CLI cannot do — hand back to the human
 
 These operations are intentionally human-only:
 
-* **Publishing a draft** (promoting a prompt **or dataset** draft to a stable version).
-* **Changing visibility** (PUBLIC ↔ PRIVATE) of a prompt, dataset, or collection.
+* **Changing visibility** (PUBLIC ↔ PRIVATE) of a prompt, tool, or collection. Going private can strand published prompts in other workspaces.
 * **Deleting a collection**, or **removing/unlinking a prompt from a collection** (these are destructive — only `link` is exposed, never an unlink).
-* **Publishing a tool version.** The mutation exists, but it is the gate that unblocks publishing every dependent prompt, so it stays with a human — as prompt and dataset publishing does.
-* **Changing a tool's visibility, or deleting a tool.** Going private can strand published prompts in other workspaces; deletion is destructive and cross-workspace.
+* **Deleting a tool.** Deletion is destructive and cross-workspace.
 * **Configuring AI provider credentials** (adding or removing API keys). The CLI can *list* a workspace's providers (`workspace providers @workspace`) so you know what an eval can run against, but never add or change them.
+* **Turning CLI publishing on.** It is a workspace setting changed only in the web app (see "Publishing").
 
-When a draft or collection is ready for any of these, stop and summarise what changed. Tell the user to act via the web UI when they're ready. Do not look for or attempt to use a `publish`, `visibility`, `delete`-collection, `unlink`, or provider-credential command — they intentionally do not exist on the CLI.
+When a draft or collection is ready for any of these, stop and summarise what changed. Tell the user to act via the web UI when they're ready. Do not look for or attempt to use a `visibility`, `delete`-collection, `delete`-tool, `unlink`, or provider-credential command — they intentionally do not exist on the CLI.
 
 ## File suffix convention
 
@@ -587,14 +635,14 @@ This means `dump → edit → push` round-trips cleanly without any name manglin
 
 ## Machine-readable output
 
-Every command in the agent surface (`prompt`, `version`, `file`, `eval`, `dataset`, `collection`, `workspace`, `me`) supports `--json`. Prefer it whenever you need to parse the output:
+Every command in the agent surface (`prompt`, `version`, `file`, `eval`, `dataset`, `collection`, `tool`, `workspace`, `me`) supports `--json`. Prefer it whenever you need to parse the output:
 
 ```bash
 sufleur version get @workspace/name@draft --json | jq '.files[].name'
 sufleur prompt list @workspace --json | jq '.data[] | {name, visibility}'
 ```
 
-When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"}`. A non-zero exit always means the operation failed.
+When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"}`, with an extra `"code"` key for errors that have a stable identifier — for example `{"error": "...", "code": "CLI_PUBLISHING_DISABLED"}`. Branch on `code` when present rather than matching message text. A non-zero exit always means the operation failed.
 
 ## Quick reference
 
@@ -612,6 +660,7 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Inspect version | `sufleur version get @workspace/name@version` |
 | Dump version | `sufleur version dump @workspace/name@version --to ./dir` |
 | Delete draft | `sufleur version delete @workspace/name@draft` |
+| Publish draft | `sufleur version publish @workspace/name 1.3.0` (workspace opt-in; see Publishing) |
 | Set metadata (sync) | `sufleur version set-metadata @workspace/name@draft --from-file ./metadata.yaml` |
 | Set metadata (patch) | `sufleur version set-metadata @workspace/name@draft --string KEY=VAL` |
 | Delete metadata key | `sufleur version delete-metadata @workspace/name@draft --key KEY` |
@@ -659,6 +708,7 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | List tool versions | `sufleur tool version list @workspace/name [--status DRAFT\|PUBLISHED]` |
 | Inspect tool version | `sufleur tool version get @workspace/name@version` |
 | Delete tool draft | `sufleur tool version delete @workspace/name@draft` |
+| Publish tool draft | `sufleur tool version publish @workspace/name 1.3.0` |
 | Set model description | `sufleur tool version set-description @workspace/name@draft [--content STR \| --file PATH]` |
 | Set tool README | `sufleur tool version set-readme @workspace/name@draft [--content STR \| --file PATH]` |
 | Set tool metadata | `sufleur tool version set-metadata @workspace/name@draft [--from-file PATH \| --string K=V \| --delete K]` |
@@ -675,6 +725,7 @@ When `--json` is set, errors are emitted on **stderr** as `{"error": "<message>"
 | Inspect dataset version | `sufleur dataset version get @workspace/name@version` |
 | Validate dataset cases | `sufleur dataset version validate @workspace/name@draft` |
 | Delete dataset draft | `sufleur dataset version delete @workspace/name@draft` |
+| Publish dataset draft | `sufleur dataset version publish @workspace/name 1.3.0` |
 | Get dataset schema | `sufleur dataset schema get @workspace/name@version [--file PATH]` |
 | Set dataset schema | `sufleur dataset schema set @workspace/name@draft --file schema.json` |
 | Push dataset cases | `sufleur dataset cases push @workspace/name@draft --file cases.jsonl [--format jsonl\|json\|csv]` |

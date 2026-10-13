@@ -136,15 +136,19 @@ The generated file inlines every prompt (no runtime fetches) and exposes `getPro
 | Auth | `login`, `logout`, `me` |
 | Workspaces | `workspace list` |
 | Prompts | `prompt create / get / list / update` |
-| Versions | `version draft / list / get / delete / set-metadata / delete-metadata / set-output-schema / set-decision-spec / set-model-config / set-readme / get-readme / dump`, plus `version tools` |
+| Versions | `version draft / list / get / delete / publish / set-metadata / delete-metadata / set-output-schema / set-decision-spec / set-model-config / set-readme / get-readme / dump`, plus `version tools` |
 | Files | `file create / update / delete / list / set-entrypoint` |
 | Evals | `eval get / validate / push / delete / run / runs / show / watch / cases / case` |
-| Datasets | `dataset create / get / list / update / dump`, plus `dataset version / schema / cases` subgroups |
-| Tools | `tool create / get / list / update / dump`, plus `tool version / schema` subgroups |
+| Datasets | `dataset create / get / list / update / dump`, plus `dataset version` (including `publish`), `schema` and `cases` subgroups |
+| Tools | `tool create / get / list / update / dump`, plus `tool version` (including `publish`) and `schema` subgroups |
 | Collections | `collection create / get / list-prompts / link / set-readme / set-description` |
 | Local render | `prompt render <dir> --entrypoint <name> --vars '{...}'`, or `prompt render <dir> --question <id>` for one decision question |
 
 Every authoring command accepts `--json` for machine-readable output. See the wrapper READMEs for the full table.
+
+### Publishing from the CLI
+
+`sufleur version publish @ws/name 1.3.0` (and `tool version publish`, `dataset version publish`) publishes the current draft as the given semver, which must be greater than the latest published version; it prints `Published @ws/name@1.3.0`. Publishing is **off by default** and is a workspace opt-in: an owner or admin turns on "Allow CLI and agent publishing" under Settings → Publish rules in the web app. Until then the command exits 1 with `CLI publishing is disabled for workspace @ws …` (with `--json`, code `CLI_PUBLISHING_DISABLED`), and the setting cannot be changed from the CLI. Existing publish rules (such as a required passing eval) still apply, a dataset must pass validation, and a prompt cannot be published while it pins a draft tool version. Published versions are immutable and cannot be deleted. Changing visibility stays web-app only.
 
 ### Decision prompts
 
@@ -184,14 +188,15 @@ An eval pins a **dataset** version through `dataset.ref` — and those datasets 
 
 ### Datasets
 
-A **dataset** is a workspace-scoped, versioned collection of **cases** (one JSON object per case) plus a JSON Schema describing their shape — the data an eval runs against. Datasets use the same draft→publish lifecycle as prompts, and — like prompts — **publishing a version and changing visibility are web-app only**. The CLI covers everything up to publish: create, draft, cases, schema, and validation.
+A **dataset** is a workspace-scoped, versioned collection of **cases** (one JSON object per case) plus a JSON Schema describing their shape — the data an eval runs against. Datasets use the same draft→publish lifecycle as prompts. The CLI covers create, draft, cases, schema, validation and — when the workspace has enabled CLI publishing — publish; changing visibility is web-app only.
 
 - `sufleur dataset create @ws/name [--description ...]` — create a dataset and its initial draft (private).
 - `sufleur dataset dump @ws/name@draft --to ./ds` — write `schema.json`, `cases.jsonl`, and `dataset.yaml` to a directory for local editing.
 - `sufleur dataset cases push @ws/name@draft --file ./ds/cases.jsonl` — upload cases (JSONL, JSON array, or CSV; format detected from the extension). The schema is **inferred on the first upload**.
 - `sufleur dataset schema set @ws/name@draft --file ./ds/schema.json` — refine the inferred JSON Schema.
-- `sufleur dataset version validate @ws/name@draft` — check every case against the schema (exits non-zero on a violation). Publishing in the app is gated on this passing.
-- `sufleur dataset version draft @ws/name` — open the next draft once a version has been published in the app.
+- `sufleur dataset version validate @ws/name@draft` — check every case against the schema (exits non-zero on a violation). Publishing is gated on this passing.
+- `sufleur dataset version publish @ws/name 1.0.0` — publish the validated draft as that semver (requires CLI publishing to be enabled for the workspace).
+- `sufleur dataset version draft @ws/name` — open the next draft once a version has been published.
 - `sufleur dataset cases pull @ws/name@version --to cases.jsonl` — download a version's cases.
 
 Reference a published version from an eval with `dataset.ref: "@ws/name@1.0.0"` (raw semver, no `v`; or the literal `draft` while iterating). Full guide: <https://sufleur.com/docs/datasets>.
