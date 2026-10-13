@@ -73,6 +73,26 @@ func (c *Client) CreateDatasetVersion(ctx context.Context, workspace, name strin
 	return resp.Version, nil
 }
 
+// PublishDatasetVersion publishes the current draft under the given semantic
+// version, which the backend requires to be greater than the latest published one.
+func (c *Client) PublishDatasetVersion(ctx context.Context, workspace, name, version string) (*DatasetVersion, error) {
+	var resp struct {
+		Version *DatasetVersion `json:"publishDatasetVersion"`
+	}
+	err := c.Do(ctx, Request{
+		Query:     "mutation PublishDatasetVersion($datasetName: ID!, $version: ID!) { publishDatasetVersion(datasetName: $datasetName, version: $version) { " + datasetVersionFields + " } }",
+		Variables: map[string]any{"datasetName": name, "version": version},
+		Workspace: workspace,
+	}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Version == nil {
+		return nil, errMissingData("publishDatasetVersion")
+	}
+	return resp.Version, nil
+}
+
 // GetDatasetVersion resolves a single version by constraint ("1.2.3", "^1.0",
 // "draft", etc.) and returns its schema and live validation report.
 func (c *Client) GetDatasetVersion(ctx context.Context, workspace, name, constraint string) (*DatasetVersion, error) {
