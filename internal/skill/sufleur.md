@@ -547,7 +547,7 @@ sufleur version tools rename @workspace/name@draft @workspace/tool --as lookup
 sufleur version tools remove @workspace/name@draft @workspace/tool
 ```
 
-* `add` takes a **constraint** (`^1.2.0`, `*`, `1.2.0`, or `draft`). The registry resolves it **once, at link time**, and stores the concrete version — a pin never moves afterwards. The command prints the version it resolved to.
+* `add` takes a **constraint** (`^1.2.0`, `*`, `1.2.0`, or `draft`). The registry resolves it **once, at link time**, and stores the concrete version — a pin never follows later versions of the tool. Publishing the pinned draft itself keeps the pin on that version, now published. The command prints the version it resolved to.
 * `--as` is the wire name the model sees. It defaults to the tool's own name, and exists so two tools sharing a bare name can be told apart within one prompt. It must match `^[a-zA-Z0-9_-]{1,64}$`.
 * `rename` and `remove` take the tool **without** a version: a prompt version pins at most one version of any given tool, so the tool alone identifies the pin.
 * Tools in **another workspace** can be pinned as long as you can read them — that is the point of publishing a tool.
@@ -594,11 +594,11 @@ If the user named a version, use it; if it is not greater than the latest publis
 
 ### Ordering
 
-* A prompt cannot be published while it pins a tool version that is still a draft. A pin never moves once linked, so publishing the tool does not update it. Work through it in this order:
+* A prompt cannot be published while it pins a tool version that is still a draft. Publishing the tool flips that same version to published in place, so the pin shows the published version without any re-pinning. Work through it in this order:
   1. `sufleur version tools list @workspace/name@draft` — the `STATUS` column shows which pins are still `DRAFT`.
-  2. `sufleur tool version publish @workspace/tool <version>` for each such tool (subject to the same opt-in and "when to publish" rules).
-  3. For each stale pin, `sufleur version tools remove @workspace/name@draft @workspace/tool`, then `sufleur version tools add @workspace/name@draft @workspace/tool@<published-version> [--as <wire-name>]`. Pass `--as` with the old wire name from step 1 if it differed from the tool's own name, since `add` defaults to the tool name. Pinning the same tool twice is rejected, which is why the old pin must be removed first.
-  4. `sufleur version tools list @workspace/name@draft` again to confirm every pin is published, then publish the prompt.
+  2. `sufleur tool version publish @workspace/tool <version>` for each tool whose pinned version is a draft (subject to the same opt-in and "when to publish" rules). The pin then shows the published version automatically; do not remove or re-add it.
+  3. `sufleur version tools list @workspace/name@draft` again to confirm no pin is a draft.
+  4. Publish the prompt.
 * A dataset can be published only when `dataset version validate` passes.
 * Existing publish rules for the workspace (for example "require a passing eval") still apply and come back as ordinary errors. Fix what they name; do not try to bypass them.
 
