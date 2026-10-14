@@ -100,6 +100,26 @@ func (c *Client) CreatePromptVersion(ctx context.Context, workspace, name string
 	return resp.Version, nil
 }
 
+// PublishPromptVersion publishes the current draft under the given semantic
+// version, which the backend requires to be greater than the latest published one.
+func (c *Client) PublishPromptVersion(ctx context.Context, workspace, name, version string) (*PromptVersion, error) {
+	var resp struct {
+		Version *PromptVersion `json:"publishPromptVersion"`
+	}
+	err := c.Do(ctx, Request{
+		Query:     "mutation PublishPromptVersion($promptName: ID!, $version: ID!) { publishPromptVersion(promptName: $promptName, version: $version) { " + promptVersionFields + " } }",
+		Variables: map[string]any{"promptName": name, "version": version},
+		Workspace: workspace,
+	}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Version == nil {
+		return nil, errMissingData("publishPromptVersion")
+	}
+	return resp.Version, nil
+}
+
 // DeletePromptVersion deletes a draft version. The backend rejects deleting
 // published versions and surfaces that as a GraphQL error.
 func (c *Client) DeletePromptVersion(ctx context.Context, workspace, name, version string) (bool, error) {

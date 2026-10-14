@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -16,7 +17,12 @@ func handleError(cmd *cobra.Command, err error) {
 	asJSON, _ := cmd.Flags().GetBool("json")
 	if asJSON {
 		enc := json.NewEncoder(os.Stderr)
-		_ = enc.Encode(map[string]string{"error": err.Error()})
+		payload := map[string]string{"error": err.Error()}
+		var coded interface{ ErrorCode() string }
+		if errors.As(err, &coded) {
+			payload["code"] = coded.ErrorCode()
+		}
+		_ = enc.Encode(payload)
 		return
 	}
 	fmt.Fprintln(os.Stderr, "Error:", err.Error())

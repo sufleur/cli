@@ -60,6 +60,7 @@ func init() {
 	)
 	toolVersionCmd.AddCommand(
 		toolVersionDraftCmd,
+		toolVersionPublishCmd,
 		toolVersionListCmd,
 		toolVersionGetCmd,
 		toolVersionDeleteCmd,

@@ -195,6 +195,7 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `version list @ws/name [--status DRAFT\|PUBLISHED]` | List versions of a prompt |
 | `version get @ws/name@version` | Show one version's details |
 | `version delete @ws/name@draft` | Delete a draft (published versions are immutable) |
+| `version publish @ws/name 1.3.0` | Publish the draft as that semver (must exceed the latest published version); needs CLI publishing enabled for the workspace |
 | `version set-metadata @ws/name@draft --string K=V` (or `--from-file …`) | Patch or sync metadata |
 | `version delete-metadata @ws/name@draft --key K` | Remove a metadata key |
 | `version set-output-schema @ws/name@draft --file schema.json` | Replace the version's output schema |
@@ -227,6 +228,7 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `dataset version draft @ws/name` | New draft, carrying forward the latest published schema + cases |
 | `dataset version list @ws/name [--status DRAFT\|PUBLISHED]` | List a dataset's versions |
 | `dataset version validate @ws/name@draft` | Check every case against the schema (non-zero exit on a violation) |
+| `dataset version publish @ws/name 1.3.0` | Publish the validated draft as that semver; needs CLI publishing enabled |
 | `tool create @ws/name [--description ...]` | Create a tool contract and its initial draft (private) |
 | `tool list @ws` / `tool get @ws/name` | List tools, or show one with its dependents and versions |
 | `tool update @ws/name --description "..."` | Edit the catalog blurb (never sent to the model) |
@@ -235,6 +237,7 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `tool version list @ws/name [--status DRAFT\|PUBLISHED]` | List a tool's versions |
 | `tool version get @ws/name@version` | Show the model description and both schemas |
 | `tool version delete @ws/name@draft` | Delete a draft version |
+| `tool version publish @ws/name 1.3.0` | Publish the draft as that semver; needs CLI publishing enabled |
 | `tool version set-description @ws/name@draft [--content \| --file]` | Set the **model-facing** description (versioned) |
 | `tool version set-readme @ws/name@draft [--content \| --file]` | Set the README |
 | `tool version set-metadata @ws/name@draft [--from-file \| --string K=V]` | Replace or patch free-form metadata |
@@ -244,9 +247,13 @@ All accept `--json`. Prompts are addressed as `@workspace/name`, versions as `@w
 | `version tools rename @ws/name@draft @ws/tool --as NAME` | Change the wire name the model sees |
 | `version tools remove @ws/name@draft @ws/tool` | Remove a pin from a draft |
 
-A **tool contract** is the model-facing definition of a tool — its wire name, the description that steers when it gets called, and the JSON Schema of its arguments — versioned like a prompt. A prompt version pins concrete tool versions, and `sufleur generate` turns those pins into typed bindings, provider-neutral definitions and a `dispatch_tool` that validates what the model sent. `tool schema set` checks a schema locally first, against the subset the generators can express, so nothing silently degrades to `unknown`/`Any`. As with prompts, **publishing a tool version and changing its visibility are done in the web app**.
+A **tool contract** is the model-facing definition of a tool — its wire name, the description that steers when it gets called, and the JSON Schema of its arguments — versioned like a prompt. A prompt version pins concrete tool versions, and `sufleur generate` turns those pins into typed bindings, provider-neutral definitions and a `dispatch_tool` that validates what the model sent. `tool schema set` checks a schema locally first, against the subset the generators can express, so nothing silently degrades to `unknown`/`Any`. As with prompts, a tool version can be published from the CLI when the workspace has enabled it (see below); **changing its visibility is done in the web app**.
 
-An **eval** scores a prompt version against a **dataset** — judges, CEL assertions, and a passing threshold. Datasets are versioned collections of test cases, authored from the CLI too (the `dataset …` commands above) and referenced from the eval YAML via `dataset.ref`. Like prompts, **publishing a dataset version and changing its visibility are done in the web app**. Full guides: <https://sufleur.com/docs/evals> and <https://sufleur.com/docs/datasets>.
+An **eval** scores a prompt version against a **dataset** — judges, CEL assertions, and a passing threshold. Datasets are versioned collections of test cases, authored from the CLI too (the `dataset …` commands above) and referenced from the eval YAML via `dataset.ref`. Like prompts, a dataset version can be published from the CLI when the workspace has enabled it; **changing its visibility is done in the web app**. Full guides: <https://sufleur.com/docs/evals> and <https://sufleur.com/docs/datasets>.
+
+### Publishing from the CLI
+
+`version publish`, `tool version publish` and `dataset version publish` publish the current draft as a semver you choose, which must be greater than the latest published version. Publishing from the CLI is **off by default**: a workspace owner or admin has to turn on "Allow CLI and agent publishing" under Settings → Publish rules in the web app, and it cannot be changed from the CLI. While it is off the command exits 1 with `CLI publishing is disabled for workspace @ws …` (with `--json`, code `CLI_PUBLISHING_DISABLED`). Existing publish rules (such as a required passing eval) still apply, a dataset must pass validation, and a prompt cannot be published while it pins a draft tool version. Published versions are immutable. Changing visibility, deleting a tool, and configuring provider credentials remain web-app only.
 
 ### Render before publishing
 

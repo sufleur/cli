@@ -121,6 +121,26 @@ func (c *Client) CreateToolVersionDraft(ctx context.Context, workspace, name str
 	return resp.Version, nil
 }
 
+// PublishToolVersion publishes the current draft under the given semantic
+// version, which the backend requires to be greater than the latest published one.
+func (c *Client) PublishToolVersion(ctx context.Context, workspace, name, version string) (*ToolVersion, error) {
+	var resp struct {
+		Version *ToolVersion `json:"publishToolVersion"`
+	}
+	err := c.Do(ctx, Request{
+		Query:     "mutation PublishToolVersion($toolName: ID!, $version: String!) { publishToolVersion(toolName: $toolName, version: $version) { " + toolVersionFields + " } }",
+		Variables: map[string]any{"toolName": name, "version": version},
+		Workspace: workspace,
+	}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Version == nil {
+		return nil, errMissingData("publishToolVersion")
+	}
+	return resp.Version, nil
+}
+
 // DeleteToolVersion deletes a draft version. Published versions are immutable
 // and the server rejects deleting them.
 func (c *Client) DeleteToolVersion(ctx context.Context, workspace, name, version string) error {

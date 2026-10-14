@@ -23,6 +23,21 @@ import (
 // longer recognised; callers should usually treat this as "re-run `sufleur login`".
 var ErrBearerRejected = errors.New("bearer token rejected")
 
+// CodeCLIPublishingDisabled is the GraphQL extensions.code the backend returns
+// when a workspace has not enabled publishing from the CLI.
+const CodeCLIPublishingDisabled = "CLI_PUBLISHING_DISABLED"
+
+// GraphQLError is the first entry of a response's `errors[]`. Code is the
+// extensions.code value, empty when the backend sent none.
+type GraphQLError struct {
+	Message string
+	Code    string
+}
+
+func (e *GraphQLError) Error() string {
+	return "graphql error: " + e.Message
+}
+
 // Client posts authenticated GraphQL requests against a Sufleur API base.
 type Client struct {
 	base   string
@@ -93,7 +108,8 @@ func (c *Client) Do(ctx context.Context, req Request, result any) error {
 		return fmt.Errorf("parsing graphql response: %w", err)
 	}
 	if len(env.Errors) > 0 {
-		return fmt.Errorf("graphql error: %s", env.Errors[0].Message)
+		first := env.Errors[0]
+		return &GraphQLError{Message: first.Message, Code: first.Extensions.Code}
 	}
 	if result == nil || len(env.Data) == 0 {
 		return nil
@@ -110,7 +126,10 @@ type graphqlRequest struct {
 }
 
 type graphqlError struct {
-	Message string `json:"message"`
+	Message    string `json:"message"`
+	Extensions struct {
+		Code string `json:"code"`
+	} `json:"extensions"`
 }
 
 type graphqlEnvelope struct {
